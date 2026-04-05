@@ -108,6 +108,7 @@
                             </a>
                             <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="navbarDropdown">
                                 <li><a class="dropdown-item" href="#" id="refresh-scrips">Refresh Scrip Master</a></li>
+                                <li><a class="dropdown-item" href="#" id="refresh-scrip-cache">Refresh Scrip Cache</a></li>
                             </ul>
                         </li>
                     </ul>
@@ -661,6 +662,24 @@
                     .catch(error => {
                         console.error('Error:', error);
                         showNotification('An unknown error occurred during scrip master download.', 'danger');
+                    });
+            });
+
+            document.getElementById('refresh-scrip-cache').addEventListener('click', function(e) {
+                e.preventDefault();
+                showNotification('Refreshing IIFL scrip cache... This may take a moment.', 'info');
+                fetch('/refresh_scrip_cache/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            showNotification(data.message, 'success');
+                        } else {
+                            showNotification('Error refreshing scrip cache: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        showNotification('An unknown error occurred while refreshing scrip cache.', 'danger');
                     });
             });
         });

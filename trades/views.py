@@ -16,6 +16,17 @@ def refresh_scrip_master(request):
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 
+def refresh_scrip_cache(request):
+    api = KotakNeoAPI()
+    try:
+        result = api.refresh_iifl_scrip_cache()
+        if result.get('status') == 'success':
+            return JsonResponse({'status': 'success', 'message': f"Scrip cache refreshed successfully. Rows loaded: {result.get('rows')}"})
+        return JsonResponse({'status': 'error', 'message': result.get('error', 'An unknown error occurred.')})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)})
+
+
 def place_trade_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)

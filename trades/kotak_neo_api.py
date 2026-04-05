@@ -4,8 +4,29 @@ import pyotp
 import logging
 import requests
 import os
+import io
+import pandas as pd
+
+try:
+    import duckdb
+except ImportError:
+    duckdb = None
 
 logger = logging.getLogger(__name__)
+
+_DUCKDB_CONNECTION = None
+IIFL_SCRIP_MASTER_URL = 'http://content.indiainfoline.com/IIFLTT/Scripmaster.csv'
+IIFL_SCRIP_MASTER_TABLE = 'iifl_scrip_master'
+
+
+def get_duckdb_connection():
+    global _DUCKDB_CONNECTION
+    if duckdb is None:
+        raise ImportError('duckdb is not installed')
+    if _DUCKDB_CONNECTION is None:
+        _DUCKDB_CONNECTION = duckdb.connect(database=':memory:')
+    return _DUCKDB_CONNECTION
+
 
 class KotakNeoAPI:
     def __init__(self):
@@ -239,3 +260,59 @@ class KotakNeoAPI:
                 return {"error": f"Failed to download file: {file_url}"}
 
         return {"status": "success", "downloaded_files": downloaded_files}
+
+    def refresh_iifl_scrip_cache(self):
+        if duckdb is None:
+            return {"status": "error", "error": "duckdb is not installed in the environment."}
+
+        try:
+            response = requests.get(IIFL_SCRIP_MASTER_URL, timeout=120)
+            response.raise_for_status()
+            csv_text = response.content.decode('utf-8', errors='replace')
+
+            dtype_map = {
+                'Exch': 'string',
+                'ExchType': 'string',
+                'Scripcode': 'Int64',
+                'Name': 'string',
+                'Series': 'string',
+                'Expiry': 'Int64',
+                'CpType': 'string',
+                'StrikeRate': 'float',
+                'ISIN': 'string',
+                'LotSize': 'Int64',
+                'FullName': 'string',
+                'AllowedToTrade': 'string',
+                'QtyLimit': 'Int64',
+                'TickSize': 'float',
+                'Multiplier': 'float',
+                'BOCOAllowed': 'string',
+                'UnderlyingScripName': 'string',
+                'ContractExpiry': 'Int64',
+            }
+
+            df = pd.read_csv(io.StringIO(csv_text), dtype=dtype_map, keep_default_na=False)
+            conn = get_duckdb_connection()
+            conn.execute(f"DROP TABLE IF EXISTS {IIFL_SCRIP_MASTER_TABLE}")
+
+            try:
+                conn.unregister('tmp_iifl_scrip_master')
+            except Exception:
+                pass
+
+            conn.register('tmp_iifl_scrip_master', df)
+            conn.execute(f"CREATE TABLE {IIFL_SCRIP_MASTER_TABLE} AS SELECT * FROM tmp_iifl_scrip_master")
+
+            try:
+                conn.unregister('tmp_iifl_scrip_master')
+            except Exception:
+                pass
+
+            row_count = conn.execute(f"SELECT COUNT(*) FROM {IIFL_SCRIP_MASTER_TABLE}").fetchone()[0]
+            return {"status": "success", "rows": int(row_count)}
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error downloading IIFL scrip master: {e}", exc_info=True)
+            return {"status": "error", "error": f"Failed to download IIFL scrip master: {e}"}
+        except Exception as e:
+            logger.error(f"Error refreshing IIFL scrip cache: {e}", exc_info=True)
+            return {"status": "error", "error": f"Failed to refresh IIFL scrip cache: {e}"}
