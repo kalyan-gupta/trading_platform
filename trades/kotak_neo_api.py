@@ -221,7 +221,7 @@ class KotakNeoAPI:
             logger.error(f"Error searching scrip: {e}", exc_info=True)
             return {"error": f"An error occurred while searching for scrips: {e}"}
 
-    def search_iifl_scrip_cache(self, symbol, area='all', limit=50):
+    def search_iifl_scrip_cache(self, symbol, exchange='', exchtype='', limit=100):
         if duckdb is None:
             return {"status": "error", "error": "duckdb is not installed in the environment."}
 
@@ -229,25 +229,30 @@ class KotakNeoAPI:
             return []
 
         conn = get_duckdb_connection()
-        lower_symbol = symbol.strip().lower()
-        params = [f"%{lower_symbol}%", f"%{lower_symbol}%", f"%{lower_symbol}%"]
-        conditions = ["(lower(Name) LIKE ? OR lower(FullName) LIKE ? OR lower(ISIN) LIKE ?)"]
-
-        area = area.lower() if area else 'all'
-        if area == 'stock':
-            conditions.append("ExchType = 'C'")
-        elif area == 'etf':
-            conditions.append("(lower(Name) LIKE '%etf%' OR lower(FullName) LIKE '%etf%')")
-        elif area == 'options':
-            conditions.append("ExchType = 'D' AND CpType IN ('CE','PE')")
-        elif area == 'futures':
-            conditions.append("ExchType = 'D' AND CpType = 'XX'")
-        elif area == 'currency':
-            conditions.append("ExchType = 'U'")
-        elif area == 'commodity':
-            conditions.append("ExchType IN ('M','X','Y')")
-
-        where_clause = ' AND '.join(conditions)
+        search_text = symbol.strip().lower()
+        words = search_text.split()
+        
+        conditions = []
+        params = []
+        
+        if exchange and exchange.strip():
+            conditions.append("Exch = ?")
+            params.append(exchange.strip().upper())
+        
+        if exchtype and exchtype.strip():
+            conditions.append("ExchType = ?")
+            params.append(exchtype.strip().upper())
+        
+        name_conditions = []
+        for word in words:
+            name_conditions.append("(lower(Name) LIKE ? OR lower(FullName) LIKE ? OR lower(ISIN) LIKE ?)")
+            word_pattern = f"%{word}%"
+            params.extend([word_pattern, word_pattern, word_pattern])
+        
+        if name_conditions:
+            conditions.append('(' + ' AND '.join(name_conditions) + ')')
+        
+        where_clause = ' AND '.join(conditions) if conditions else "1=1"
         sql = f"SELECT Exch, ExchType, Scripcode, Name, Series, Expiry, CpType, StrikeRate, ISIN, LotSize, FullName, AllowedToTrade, QtyLimit, TickSize, Multiplier, BOCOAllowed, UnderlyingScripName, ContractExpiry FROM {IIFL_SCRIP_MASTER_TABLE} WHERE {where_clause} LIMIT ?"
         params.append(limit)
 

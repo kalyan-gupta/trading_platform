@@ -268,23 +268,33 @@
             </div>
             <div class="card-body">
                 <div class="row g-3 align-items-end">
-                    <div class="col-md-3">
-                        <label for="cache_area" class="form-label">Search Area</label>
-                        <select id="cache_area" class="form-select">
-                            <option value="all" selected>All</option>
-                            <option value="stock">Stock / Equity</option>
-                            <option value="etf">ETF</option>
-                            <option value="options">Options</option>
-                            <option value="futures">Futures</option>
-                            <option value="commodity">Commodity</option>
-                            <option value="currency">Currency Derivative</option>
+                    <div class="col-md-2">
+                        <label for="cache_exchange" class="form-label">Exchange</label>
+                        <select id="cache_exchange" class="form-select">
+                            <option value="" selected>All Exchanges</option>
+                            <option value="N">NSE</option>
+                            <option value="B">BSE</option>
+                            <option value="M">MCX</option>
+                            <option value="X">NCDEX</option>
                         </select>
                     </div>
-                    <div class="col-md-5">
-                        <label for="cache_symbol_search" class="form-label">Search Symbol / Name</label>
-                        <input type="text" class="form-control" id="cache_symbol_search" placeholder="Type symbol, name or ISIN" autocomplete="off">
+                    <div class="col-md-2">
+                        <label for="cache_exchtype" class="form-label">Segment</label>
+                        <select id="cache_exchtype" class="form-select">
+                            <option value="" selected>All Segments</option>
+                            <option value="C">Equity</option>
+                            <option value="D">Derivatives</option>
+                            <option value="U">Currency Derivative</option>
+                            <option value="X">NCDEX Commodity</option>
+                            <option value="Y">Commodity</option>
+                        </select>
                     </div>
-                    <div class="col-md-3">
+                    <div class="col-md-4">
+                        <label for="cache_symbol_search" class="form-label">Search Symbol / Name / ISIN</label>
+                        <input type="text" class="form-control" id="cache_symbol_search" placeholder="e.g., nifty 20500 or reliance" autocomplete="off">
+                        <small class="text-muted d-block mt-1">Elastic search: partial matches and word order don't matter</small>
+                    </div>
+                    <div class="col-md-2">
                         <button type="button" id="cache-search-clear" class="btn btn-outline-secondary w-100">Clear Results</button>
                     </div>
                 </div>
@@ -618,7 +628,8 @@
             const exchangeSegmentInput = document.getElementById('exchange_segment');
             const instrumentTypeInput = document.getElementById('instrument_type');
             const cacheSymbolSearchInput = document.getElementById('cache_symbol_search');
-            const cacheAreaInput = document.getElementById('cache_area');
+            const cacheExchangeInput = document.getElementById('cache_exchange');
+            const cacheExchTypeInput = document.getElementById('cache_exchtype');
             const cacheResultsTableBody = document.getElementById('cache-results-table-body');
             const cacheSearchClearButton = document.getElementById('cache-search-clear');
             let searchTimeout;
@@ -650,14 +661,20 @@
 
             function searchInMemoryCache() {
                 const searchTerm = cacheSymbolSearchInput.value.trim();
-                const area = cacheAreaInput.value;
+                const exchange = cacheExchangeInput.value;
+                const exchtype = cacheExchTypeInput.value;
 
                 if (searchTerm.length < 2) {
                     renderCacheResults([]);
                     return;
                 }
 
-                fetch(`/search_iifl_scrip_cache_ajax/?symbol=${encodeURIComponent(searchTerm)}&area=${encodeURIComponent(area)}`)
+                const params = new URLSearchParams();
+                params.append('symbol', searchTerm);
+                if (exchange) params.append('exchange', exchange);
+                if (exchtype) params.append('exchtype', exchtype);
+
+                fetch(`/search_iifl_scrip_cache_ajax/?${params.toString()}`)
                     .then(response => response.json())
                     .then(data => {
                         if (data.status === 'success' && Array.isArray(data.results)) {
@@ -679,7 +696,13 @@
                 cacheSearchTimeout = setTimeout(searchInMemoryCache, 300);
             });
 
-            cacheAreaInput.addEventListener('change', function() {
+            cacheExchangeInput.addEventListener('change', function() {
+                if (cacheSymbolSearchInput.value.trim().length >= 2) {
+                    searchInMemoryCache();
+                }
+            });
+
+            cacheExchTypeInput.addEventListener('change', function() {
                 if (cacheSymbolSearchInput.value.trim().length >= 2) {
                     searchInMemoryCache();
                 }
@@ -687,7 +710,8 @@
 
             cacheSearchClearButton.addEventListener('click', function() {
                 cacheSymbolSearchInput.value = '';
-                cacheAreaInput.value = 'all';
+                cacheExchangeInput.value = '';
+                cacheExchTypeInput.value = '';
                 renderCacheResults([]);
             });
 
