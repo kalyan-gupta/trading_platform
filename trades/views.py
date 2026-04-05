@@ -84,6 +84,25 @@ def search_scrips_ajax(request):
     return JsonResponse(results, safe=False)
 
 
+def search_iifl_scrip_cache_ajax(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Only GET requests are allowed'}, status=405)
+
+    symbol = request.GET.get('symbol', '').strip()
+    area = request.GET.get('area', 'all').strip().lower()
+
+    if not symbol:
+        return JsonResponse({'error': 'Symbol is required.'}, status=400)
+
+    api = KotakNeoAPI()
+    results = api.search_iifl_scrip_cache(symbol=symbol, area=area, limit=100)
+
+    if isinstance(results, dict) and results.get('status') == 'error':
+        return JsonResponse({'status': 'error', 'message': results.get('error', 'Failed to search scrip cache.')})
+
+    return JsonResponse({'status': 'success', 'results': results}, safe=False)
+
+
 def index(request):
     api_response = None
     api = KotakNeoAPI()

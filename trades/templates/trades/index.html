@@ -261,6 +261,57 @@
             </div>
         </div>
 
+        <!-- In-Memory IIFL Scrip Search Card -->
+        <div class="card mb-4 border-start border-4 border-info">
+            <div class="card-header bg-white">
+                <h2 class="h5 mb-0"><i class="bi bi-search me-2 text-info"></i> Search IIFL Scrip Cache</h2>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 align-items-end">
+                    <div class="col-md-3">
+                        <label for="cache_area" class="form-label">Search Area</label>
+                        <select id="cache_area" class="form-select">
+                            <option value="all" selected>All</option>
+                            <option value="stock">Stock / Equity</option>
+                            <option value="etf">ETF</option>
+                            <option value="options">Options</option>
+                            <option value="futures">Futures</option>
+                            <option value="commodity">Commodity</option>
+                            <option value="currency">Currency Derivative</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="cache_symbol_search" class="form-label">Search Symbol / Name</label>
+                        <input type="text" class="form-control" id="cache_symbol_search" placeholder="Type symbol, name or ISIN" autocomplete="off">
+                    </div>
+                    <div class="col-md-3">
+                        <button type="button" id="cache-search-clear" class="btn btn-outline-secondary w-100">Clear Results</button>
+                    </div>
+                </div>
+
+                <div class="table-responsive mt-3">
+                    <table class="table table-sm table-hover caption-top">
+                        <caption>Results from the in-memory IIFL scrip cache.</caption>
+                        <thead class="table-light">
+                            <tr>
+                                <th>Symbol</th>
+                                <th>Name</th>
+                                <th>Series</th>
+                                <th>Expiry</th>
+                                <th>Type</th>
+                                <th>Strike</th>
+                                <th>ISIN</th>
+                                <th>Exchange</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cache-results-table-body">
+                            <tr><td colspan="8" class="text-center text-muted">Search cache data using the field above.</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Tabbed View for Orders and Holdings -->
         <div class="card">
             <div class="card-header">
@@ -566,8 +617,79 @@
             const symbolResults = document.getElementById('symbol-results');
             const exchangeSegmentInput = document.getElementById('exchange_segment');
             const instrumentTypeInput = document.getElementById('instrument_type');
+            const cacheSymbolSearchInput = document.getElementById('cache_symbol_search');
+            const cacheAreaInput = document.getElementById('cache_area');
+            const cacheResultsTableBody = document.getElementById('cache-results-table-body');
+            const cacheSearchClearButton = document.getElementById('cache-search-clear');
             let searchTimeout;
+            let cacheSearchTimeout;
             let isSelecting = false;
+
+            function renderCacheResults(rows) {
+                cacheResultsTableBody.innerHTML = '';
+                if (!rows || rows.length === 0) {
+                    cacheResultsTableBody.innerHTML = '<tr><td colspan="8" class="text-center text-muted">No matching records found in the cache.</td></tr>';
+                    return;
+                }
+
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.Name || ''}</td>
+                        <td>${row.FullName || ''}</td>
+                        <td>${row.Series || ''}</td>
+                        <td>${row.Expiry || ''}</td>
+                        <td>${row.CpType || row.ExchType || ''}</td>
+                        <td>${row.StrikeRate || ''}</td>
+                        <td>${row.ISIN || ''}</td>
+                        <td>${row.Exch || ''}</td>
+                    `;
+                    cacheResultsTableBody.appendChild(tr);
+                });
+            }
+
+            function searchInMemoryCache() {
+                const searchTerm = cacheSymbolSearchInput.value.trim();
+                const area = cacheAreaInput.value;
+
+                if (searchTerm.length < 2) {
+                    renderCacheResults([]);
+                    return;
+                }
+
+                fetch(`/search_iifl_scrip_cache_ajax/?symbol=${encodeURIComponent(searchTerm)}&area=${encodeURIComponent(area)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success' && Array.isArray(data.results)) {
+                            renderCacheResults(data.results);
+                        } else {
+                            renderCacheResults([]);
+                            showNotification(data.message || 'Failed to search in-memory cache.', 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error searching cache:', error);
+                        renderCacheResults([]);
+                        showNotification('Unable to search the in-memory cache.', 'danger');
+                    });
+            }
+
+            cacheSymbolSearchInput.addEventListener('keyup', function() {
+                clearTimeout(cacheSearchTimeout);
+                cacheSearchTimeout = setTimeout(searchInMemoryCache, 300);
+            });
+
+            cacheAreaInput.addEventListener('change', function() {
+                if (cacheSymbolSearchInput.value.trim().length >= 2) {
+                    searchInMemoryCache();
+                }
+            });
+
+            cacheSearchClearButton.addEventListener('click', function() {
+                cacheSymbolSearchInput.value = '';
+                cacheAreaInput.value = 'all';
+                renderCacheResults([]);
+            });
 
             symbolSearchInput.addEventListener('keyup', function() {
                 if (isSelecting) {

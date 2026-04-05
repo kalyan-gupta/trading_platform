@@ -221,6 +221,49 @@ class KotakNeoAPI:
             logger.error(f"Error searching scrip: {e}", exc_info=True)
             return {"error": f"An error occurred while searching for scrips: {e}"}
 
+    def search_iifl_scrip_cache(self, symbol, area='all', limit=50):
+        if duckdb is None:
+            return {"status": "error", "error": "duckdb is not installed in the environment."}
+
+        if not symbol or symbol.strip() == '':
+            return []
+
+        conn = get_duckdb_connection()
+        lower_symbol = symbol.strip().lower()
+        params = [f"%{lower_symbol}%", f"%{lower_symbol}%", f"%{lower_symbol}%"]
+        conditions = ["(lower(Name) LIKE ? OR lower(FullName) LIKE ? OR lower(ISIN) LIKE ?)"]
+
+        area = area.lower() if area else 'all'
+        if area == 'stock':
+            conditions.append("ExchType = 'C'")
+        elif area == 'etf':
+            conditions.append("(lower(Name) LIKE '%etf%' OR lower(FullName) LIKE '%etf%')")
+        elif area == 'options':
+            conditions.append("ExchType = 'D' AND CpType IN ('CE','PE')")
+        elif area == 'futures':
+            conditions.append("ExchType = 'D' AND CpType = 'XX'")
+        elif area == 'currency':
+            conditions.append("ExchType = 'U'")
+        elif area == 'commodity':
+            conditions.append("ExchType IN ('M','X','Y')")
+
+        where_clause = ' AND '.join(conditions)
+        sql = f"SELECT Exch, ExchType, Scripcode, Name, Series, Expiry, CpType, StrikeRate, ISIN, LotSize, FullName, AllowedToTrade, QtyLimit, TickSize, Multiplier, BOCOAllowed, UnderlyingScripName, ContractExpiry FROM {IIFL_SCRIP_MASTER_TABLE} WHERE {where_clause} LIMIT ?"
+        params.append(limit)
+
+        try:
+            cursor = conn.execute(sql, params)
+            try:
+                df = cursor.fetchdf()
+                return df.to_dict(orient='records')
+            except Exception:
+                rows = cursor.fetchall()
+                columns = [col[0] for col in cursor.description] if cursor.description else []
+                return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            logger.error(f"Error searching IIFL scrip cache: {e}", exc_info=True)
+            return {"status": "error", "error": f"Failed to search IIFL scrip cache: {e}"}
+
     def scrip_master(self, exchange_segment=None):
         auth_response = self.authenticate()
         if 'error' in auth_response:
