@@ -321,7 +321,41 @@
             </div>
         </div>
 
-        <!-- Tabbed View for Orders and Holdings -->
+        <!-- Scrip Action Modal -->
+        <div class="modal fade" id="scripActionModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Scrip Details</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label text-muted small">Instrument</label>
+                            <p class="h6 mb-0" id="modal-scrip-name">-</p>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label class="form-label text-muted small">Strike Price</label>
+                                <p class="h6 mb-0" id="modal-strike-price">-</p>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label text-muted small">Expiry Date</label>
+                                <p class="h6 mb-0" id="modal-expiry-date">-</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-primary" id="modal-show-depth-btn">
+                            <i class="bi bi-graph-up me-1"></i> Show Depth
+                        </button>
+                        <button type="button" class="btn btn-primary" id="modal-place-order-btn">
+                            <i class="bi bi-plus-circle me-1"></i> Place Order
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="card">
             <div class="card-header">
                  <ul class="nav nav-tabs card-header-tabs" id="myTab" role="tablist">
@@ -860,6 +894,18 @@
                                     <td class="small">${expiryDate}</td>
                                     <td class="small">${result.dStrikePrice > 0 ? result.dStrikePrice : '-'}</td>
                                 `;
+                                
+                                // Make row clickable - show action modal
+                                row.style.cursor = 'pointer';
+                                row.addEventListener('click', function() {
+                                    document.getElementById('modal-scrip-name').textContent = displayName;
+                                    document.getElementById('modal-strike-price').textContent = result.dStrikePrice > 0 ? result.dStrikePrice : '-';
+                                    document.getElementById('modal-expiry-date').textContent = expiryDate;
+                                    
+                                    const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
+                                    modal.show();
+                                });
+                                
                                 scripResultsBody.appendChild(row);
                             });
 
@@ -883,6 +929,17 @@
                 if (!scripSearch.contains(e.target) && !scripResultsDropdown.contains(e.target)) {
                     scripResultsDropdown.classList.remove('show');
                 }
+            });
+
+            // Scrip action modal button handlers
+            document.getElementById('modal-show-depth-btn').addEventListener('click', function() {
+                const scripName = document.getElementById('modal-scrip-name').textContent;
+                showNotification(`Showing depth for ${scripName}...`, 'info');
+            });
+
+            document.getElementById('modal-place-order-btn').addEventListener('click', function() {
+                const scripName = document.getElementById('modal-scrip-name').textContent;
+                showNotification(`Opening order form for ${scripName}...`, 'info');
             });
         });
     </script>
