@@ -303,14 +303,11 @@
                         <caption id="scrip-results-caption">Search results</caption>
                         <thead class="table-light">
                             <tr>
-                                <th style="width: 10%;">Symbol ID</th>
-                                <th style="width: 12%;">Exchange</th>
-                                <th style="width: 15%;">Name</th>
-                                <th style="width: 10%;">Type</th>
-                                <th style="width: 10%;">Inst. Type</th>
+                                <th style="width: 12%;">Type</th>
+                                <th style="width: 10%;">Exchange</th>
+                                <th style="width: 25%;">Name</th>
+                                <th style="width: 15%;">Expiry Date</th>
                                 <th style="width: 12%;">Strike Price</th>
-                                <th style="width: 20%;">Scrip Ref Key</th>
-                                <th style="width: 15%;">Description</th>
                             </tr>
                         </thead>
                         <tbody id="scrip-results-body">
@@ -817,15 +814,51 @@
 
                             data.results.forEach(result => {
                                 const row = document.createElement('tr');
+                                
+                                // Determine type badge
+                                let typeLabel = 'Stock';
+                                let typeBadgeClass = 'bg-success-subtle text-success-emphasis';
+                                
+                                if (result.pInstType) {
+                                    const instType = result.pInstType.toUpperCase();
+                                    if (instType === 'OPTSTK' || instType === 'OPTIDX' || instType === 'SO' || instType === 'IO') {
+                                        typeLabel = 'Option';
+                                        typeBadgeClass = 'bg-warning-subtle text-warning-emphasis';
+                                    } else if (instType === 'FUTIDX' || instType === 'FUTSTK' || instType === 'SF' || instType === 'IF') {
+                                        typeLabel = 'Future';
+                                        typeBadgeClass = 'bg-info-subtle text-info-emphasis';
+                                    }
+                                }
+                                
+                                // Determine exchange badge
+                                let exchangeLabel = 'NSE';
+                                let exchangeBadgeClass = 'bg-primary-subtle text-primary-emphasis';
+                                if (result.pExchSeg && result.pExchSeg.toUpperCase().includes('BSE')) {
+                                    exchangeLabel = 'BSE';
+                                    exchangeBadgeClass = 'bg-secondary-subtle text-secondary-emphasis';
+                                }
+                                
+                                // Extract expiry date from pScripRefKey (format: DDMMMYY)
+                                let expiryDate = '-';
+                                if (result.pScripRefKey) {
+                                    const dateMatch = result.pScripRefKey.match(/(\d{2}[A-Z]{3}\d{2})/);
+                                    if (dateMatch) {
+                                        expiryDate = dateMatch[1];
+                                    }
+                                }
+                                
+                                // For options/futures, show pTrdSymbol; for stocks, show pSymbolName
+                                let displayName = result.pSymbolName || '-';
+                                if (typeLabel === 'Option' || typeLabel === 'Future') {
+                                    displayName = result.pTrdSymbol || result.pSymbolName || '-';
+                                }
+                                
                                 row.innerHTML = `
-                                    <td class="small">${result.pSymbol || '-'}</td>
-                                    <td class="small">${result.pExchSeg || '-'}</td>
-                                    <td class="small fw-bold">${result.pSymbolName || '-'}</td>
-                                    <td class="small">${result.pOptionType || '-'}</td>
-                                    <td class="small">${result.pInstType || '-'}</td>
+                                    <td><span class="badge ${typeBadgeClass} border">${typeLabel}</span></td>
+                                    <td><span class="badge ${exchangeBadgeClass} border">${exchangeLabel}</span></td>
+                                    <td class="small fw-bold">${displayName}</td>
+                                    <td class="small">${expiryDate}</td>
                                     <td class="small">${result.dStrikePrice > 0 ? result.dStrikePrice : '-'}</td>
-                                    <td class="small">${result.pScripRefKey || '-'}</td>
-                                    <td class="small text-muted">${result.pDesc || '-'}</td>
                                 `;
                                 scripResultsBody.appendChild(row);
                             });

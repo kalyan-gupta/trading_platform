@@ -158,6 +158,7 @@ def search_scrip_cache(request):
                     pSymbol,
                     pExchSeg,
                     pSymbolName,
+                    pTrdSymbol,
                     pOptionType,
                     pInstType,
                     CAST(COALESCE("dStrikePrice;", 0) AS DECIMAL) / 100 as dStrikePrice,
@@ -169,7 +170,7 @@ def search_scrip_cache(request):
             """
 
             results = _duckdb_connection.execute(query).fetchall()
-            columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc']
+            columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc']
             
             data = [dict(zip(columns, row)) for row in results]
             
