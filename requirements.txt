@@ -44,4 +44,5 @@ ujson==5.11.0
 urllib3==1.26.14
 websocket-client==1.8.0
 websockets==8.1
+duckdb==1.18.0
 zope.interface==8.2

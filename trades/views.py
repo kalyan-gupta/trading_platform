@@ -2,7 +2,39 @@ from django.shortcuts import render
 from .kotak_neo_api import KotakNeoAPI
 from django.contrib import messages
 from django.http import JsonResponse
+from django.conf import settings
 import json
+import duckdb
+import glob
+import os
+import threading
+
+_duckdb_connection = duckdb.connect(database=':memory:')
+_duckdb_lock = threading.Lock()
+
+def _quote_sql_string(value):
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _get_scrip_data_files():
+    scrip_dir = os.path.join(settings.BASE_DIR, 'trades', 'scrip_data')
+    if not os.path.isdir(scrip_dir):
+        raise FileNotFoundError(f"Scrip data folder not found: {scrip_dir}")
+
+    csv_files = sorted(glob.glob(os.path.join(scrip_dir, '*.csv')))
+    if not csv_files:
+        return []
+
+    target_keywords = ['nse_fo', 'bse_fo', 'nse_cm', 'bse_cm']
+    matched_files = [path for path in csv_files if any(keyword in os.path.basename(path).lower() for keyword in target_keywords)]
+    if matched_files:
+        return matched_files
+
+    if len(csv_files) <= 4:
+        return csv_files
+
+    return []
+
 
 def refresh_scrip_master(request):
     api = KotakNeoAPI()
@@ -14,6 +46,36 @@ def refresh_scrip_master(request):
             return JsonResponse({'status': 'error', 'message': result.get('error', 'An unknown error occurred.')})
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)})
+
+
+def refresh_scrip_cache(request):
+    if request.method != 'GET':
+        return JsonResponse({'status': 'error', 'message': 'Only GET requests are allowed.'}, status=405)
+
+    try:
+        csv_files = _get_scrip_data_files()
+        if not csv_files:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Could not find matching scrip CSV files in trades/scrip_data. Expected files containing nse_fo, bse_fo, nse_cm, or bse_cm.'
+            }, status=404)
+
+        with _duckdb_lock:
+            _duckdb_connection.execute('DROP TABLE IF EXISTS all_market_data')
+            file_list_sql = ', '.join(_quote_sql_string(path) for path in csv_files)
+            _duckdb_connection.execute(
+                f"CREATE TABLE all_market_data AS SELECT * FROM read_csv([{file_list_sql}], union_by_name=True)"
+            )
+            row_count = _duckdb_connection.execute('SELECT COUNT(*) FROM all_market_data').fetchone()[0]
+
+        return JsonResponse({
+            'status': 'success',
+            'message': f'Refreshed all_market_data with {row_count} rows from {len(csv_files)} file(s).',
+            'loaded_files': [os.path.basename(path) for path in csv_files],
+            'row_count': row_count,
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
 def place_trade_ajax(request):
