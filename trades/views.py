@@ -121,36 +121,29 @@ def search_scrip_cache(request):
             # Build elastic search: make it tighter by requiring more matches
             search_terms = search_term.lower().split()
             
-            # For options: construct search to match pScripRefKey pattern (e.g., NIFTY2050013APR26CE)
-            # For stocks: match symbol name or description
-            search_conditions = []
-            
             # Escape single quotes in search terms
             safe_terms = [term.replace("'", "''") for term in search_terms]
             
-            # Build conditions for options: try to match pScripRefKey with concatenated terms
-            # Options format: SYMBOL+STRIKE+EXPIRYDATE+OPTIONTYPE (e.g., NIFTY2050013APR26CE)
-            options_conditions = []
+            # Build conditions for options/futures: search only in pScripRefKey (AND logic)
+            fno_conditions = []
             for term in safe_terms:
-                options_conditions.append(f"LOWER(COALESCE(pScripRefKey, '')) LIKE '%{term}%'")
-            options_search = " AND ".join(options_conditions) if options_conditions else "1=1"
+                fno_conditions.append(f"LOWER(COALESCE(pScripRefKey, '')) LIKE '%{term}%'")
+            fno_search = " AND ".join(fno_conditions) if fno_conditions else "1=1"
             
-            # Build conditions for stocks: match symbol name OR description (more lenient)
+            # Build conditions for stocks: search in pScripRefKey OR pDesc (OR logic for terms)
             stock_conditions = []
             for term in safe_terms:
                 stock_conditions.append(f"""
-                    (LOWER(COALESCE(pSymbolName, '')) LIKE '%{term}%'
+                    (LOWER(COALESCE(pScripRefKey, '')) LIKE '%{term}%'
                     OR LOWER(COALESCE(pDesc, '')) LIKE '%{term}%')
                 """)
             stock_search = " OR ".join(stock_conditions) if stock_conditions else "1=1"
             
-            # Combine: prioritize option search if looking for options, otherwise use stock search
-            if inst_type == 'option':
-                final_search = f"({options_search})"
-            elif inst_type == 'future':
-                final_search = f"({options_search})"
+            # Combine: prioritize F&O search if looking for options/futures or when exchange is F&O, otherwise use stock search
+            if inst_type in ('option', 'future') or exchange in ('nse_fo', 'bse_fo'):
+                final_search = f"({fno_search})"
             else:
-                # For stocks or all, use stock search (looser)
+                # For stocks or non-F&O search, use stock search (looser)
                 final_search = f"({stock_search})"
 
             query = f"""
