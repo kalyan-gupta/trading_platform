@@ -233,6 +233,36 @@ def search_scrips_ajax(request):
     return JsonResponse(results, safe=False)
 
 
+def get_depth(request):
+    if request.method != 'GET':
+        return JsonResponse({'error': 'Only GET requests are allowed'}, status=405)
+
+    p_symbol = request.GET.get('p_symbol', '')
+    p_exch_seg = request.GET.get('p_exch_seg', '')
+
+    if not p_symbol or not p_exch_seg:
+        return JsonResponse({'error': 'p_symbol and p_exch_seg are required.'}, status=400)
+
+    api = KotakNeoAPI()
+    instrument_tokens = [{"instrument_token": p_symbol, "exchange_segment": p_exch_seg}]
+    result = api.quotes(instrument_tokens=instrument_tokens, quote_type="all")
+
+    if 'error' in result:
+        return JsonResponse({'error': result['error']}, status=400)
+
+    # The result is a list with one item
+    if isinstance(result, list) and len(result) > 0:
+        quote = result[0]
+        depth_data = {
+            'ltp': quote.get('ltp'),
+            'buy_depth': quote.get('depth', {}).get('buy', []),
+            'sell_depth': quote.get('depth', {}).get('sell', [])
+        }
+        return JsonResponse(depth_data)
+    else:
+        return JsonResponse({'error': 'No depth data received'}, status=400)
+
+
 def index(request):
     api_response = None
     api = KotakNeoAPI()

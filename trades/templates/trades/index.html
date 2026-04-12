@@ -502,6 +502,60 @@
                 </div>
             </div>
         </div>
+
+        <!-- Depth Modal -->
+        <div class="modal fade" id="depthModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Market Depth - <span id="depth-scrip-name"></span></h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row mb-3">
+                            <div class="col-12 text-center">
+                                <h4 class="text-primary" id="depth-ltp">Loading...</h4>
+                                <small class="text-muted">Last Traded Price</small>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-success mb-3">Buy Orders</h6>
+                                <div id="buy-depth" class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Price</th>
+                                                <th>Quantity</th>
+                                                <th>Orders</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="buy-depth-body">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-danger mb-3">Sell Orders</h6>
+                                <div id="sell-depth" class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>Price</th>
+                                                <th>Quantity</th>
+                                                <th>Orders</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="sell-depth-body">
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         
         {% if api_response %}
         <div class="card bg-light mt-4">
@@ -902,6 +956,10 @@
                                     document.getElementById('modal-strike-price').textContent = result.dStrikePrice > 0 ? result.dStrikePrice : '-';
                                     document.getElementById('modal-expiry-date').textContent = expiryDate;
                                     
+                                    // Store data for depth and order
+                                    document.getElementById('modal-scrip-name').dataset.pSymbol = result.pSymbol;
+                                    document.getElementById('modal-scrip-name').dataset.pExchSeg = result.pExchSeg;
+                                    
                                     const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
                                     modal.show();
                                 });
@@ -934,7 +992,67 @@
             // Scrip action modal button handlers
             document.getElementById('modal-show-depth-btn').addEventListener('click', function() {
                 const scripName = document.getElementById('modal-scrip-name').textContent;
-                showNotification(`Showing depth for ${scripName}...`, 'info');
+                const pSymbol = document.getElementById('modal-scrip-name').dataset.pSymbol;
+                const pExchSeg = document.getElementById('modal-scrip-name').dataset.pExchSeg;
+                
+                if (!pSymbol || !pExchSeg) {
+                    showNotification('Unable to get depth: missing symbol information', 'danger');
+                    return;
+                }
+                
+                // Close the action modal
+                const actionModal = bootstrap.Modal.getInstance(document.getElementById('scripActionModal'));
+                actionModal.hide();
+                
+                // Show depth modal
+                document.getElementById('depth-scrip-name').textContent = scripName;
+                document.getElementById('depth-ltp').textContent = 'Loading...';
+                document.getElementById('buy-depth-body').innerHTML = '<tr><td colspan="3" class="text-center">Loading...</td></tr>';
+                document.getElementById('sell-depth-body').innerHTML = '<tr><td colspan="3" class="text-center">Loading...</td></tr>';
+                
+                const depthModal = new bootstrap.Modal(document.getElementById('depthModal'));
+                depthModal.show();
+                
+                // Fetch depth data
+                fetch(`/get_depth/?p_symbol=${encodeURIComponent(pSymbol)}&p_exch_seg=${encodeURIComponent(pExchSeg)}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.error) {
+                            showNotification('Error fetching depth: ' + data.error, 'danger');
+                            depthModal.hide();
+                            return;
+                        }
+                        
+                        // Update LTP
+                        document.getElementById('depth-ltp').textContent = `₹${parseFloat(data.ltp).toFixed(2)}`;
+                        
+                        // Update buy depth
+                        let buyHtml = '';
+                        data.buy_depth.forEach(level => {
+                            buyHtml += `<tr>
+                                <td class="text-success fw-bold">₹${parseFloat(level.price).toFixed(2)}</td>
+                                <td>${level.quantity}</td>
+                                <td>${level.orders}</td>
+                            </tr>`;
+                        });
+                        document.getElementById('buy-depth-body').innerHTML = buyHtml || '<tr><td colspan="3" class="text-center text-muted">No buy orders</td></tr>';
+                        
+                        // Update sell depth
+                        let sellHtml = '';
+                        data.sell_depth.forEach(level => {
+                            sellHtml += `<tr>
+                                <td class="text-danger fw-bold">₹${parseFloat(level.price).toFixed(2)}</td>
+                                <td>${level.quantity}</td>
+                                <td>${level.orders}</td>
+                            </tr>`;
+                        });
+                        document.getElementById('sell-depth-body').innerHTML = sellHtml || '<tr><td colspan="3" class="text-center text-muted">No sell orders</td></tr>';
+                    })
+                    .catch(error => {
+                        console.error('Error fetching depth:', error);
+                        showNotification('An error occurred while fetching depth data.', 'danger');
+                        depthModal.hide();
+                    });
             });
 
             document.getElementById('modal-place-order-btn').addEventListener('click', function() {

@@ -200,6 +200,17 @@ class KotakNeoAPI:
             logger.error(f"Error searching scrip: {e}", exc_info=True)
             return {"error": f"An error occurred while searching for scrips: {e}"}
 
+    def quotes(self, instrument_tokens, quote_type=""):
+        auth_response = self.authenticate()
+        if 'error' in auth_response:
+            return auth_response
+        
+        try:
+            return self.client.quotes(instrument_tokens=instrument_tokens, quote_type=quote_type)
+        except Exception as e:
+            logger.error(f"Error fetching quotes: {e}", exc_info=True)
+            return {"error": f"An error occurred while fetching quotes: {e}"}
+
     def scrip_master(self, exchange_segment=None):
         auth_response = self.authenticate()
         if 'error' in auth_response:
