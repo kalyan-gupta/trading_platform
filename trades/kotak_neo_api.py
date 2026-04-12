@@ -8,19 +8,33 @@ import os
 logger = logging.getLogger(__name__)
 
 class KotakNeoAPI:
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(KotakNeoAPI, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        self.credentials = settings.KOTAK_NEO_API_CREDENTIALS
-        self.client = NeoAPI(environment='prod', consumer_key=self.credentials['CONSUMER_KEY'])
-        self.is_authenticated = False
+        if not hasattr(self, 'client'):
+            self.credentials = settings.KOTAK_NEO_API_CREDENTIALS
+            self.client = NeoAPI(environment='prod', consumer_key=self.credentials['CONSUMER_KEY'])
+            self.is_authenticated = False
+            # Authenticate once during initialization
+            auth_result = self.authenticate()
+            if 'error' in auth_result:
+                raise Exception(f"Failed to authenticate Kotak Neo API: {auth_result['error']}")
 
     def generate_totp(self):
         totp = pyotp.TOTP(self.credentials['TOTP_SECRET'])
+        print("Generating TOTP...")
         return totp.now()
 
     def authenticate(self):
         if self.is_authenticated:
             return {"status": "success", "message": "Already authenticated"}
         try:
+            print("Attempting Kotak Neo API authentication...")
             logger.info("Attempting Kotak Neo API authentication...")
             login_response = self.client.totp_login(mobile_number=self.credentials['MOBILE_NUMBER'], 
                                    ucc=self.credentials['UCC'], 
