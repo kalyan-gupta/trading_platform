@@ -668,7 +668,7 @@
                             </div>
                         </form>
                         <div class="text-center">
-                            <p class="text-muted small">Time remaining: <span id="totp-timer" class="fw-bold text-danger">5</span> seconds</p>
+                            <p class="text-muted small">Time remaining: <span id="totp-timer" class="fw-bold text-danger">20</span> seconds</p>
                         </div>
                     </div>
                     <div class="modal-footer">
@@ -1391,7 +1391,9 @@
                                     const formatted = showMarginResult(orderMarginResult, retryMarginResult.data);
                                     if (formatted.insufFund > 0 || formatted.status !== 'OK') {
                                         showNotification('Insufficient margin. Please add funds and try again.', 'danger');
-                                        return;
+                                        submitBtn.disabled = false;
+                                        submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
+                                        return Promise.resolve();
                                     }
 
                                     const orderData = {
@@ -1405,7 +1407,7 @@
                                         price: orderType === 'MKT' ? '0' : price
                                     };
 
-                                    fetch('/place_trade_ajax/', {
+                                    return fetch('/place_trade_ajax/', {
                                         method: 'POST',
                                         headers: {
                                             'Content-Type': 'application/json',
@@ -1425,16 +1427,13 @@
                                         } else {
                                             showNotification(result.message || 'An unknown error occurred.', 'danger');
                                         }
-                                    })
-                                    .finally(() => {
-                                        submitBtn.disabled = false;
-                                        submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
                                     });
                                 } else {
                                     orderMarginResult.className = 'alert alert-danger';
                                     orderMarginResult.textContent = retryMarginResult.error || 'Margin check failed after reauth.';
                                     submitBtn.disabled = false;
                                     submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
+                                    return Promise.resolve();
                                 }
                             });
                         });
@@ -1698,7 +1697,7 @@
                 const submitBtn = document.getElementById('totp-submit-btn');
                 const cancelBtn = document.getElementById('totp-cancel-btn');
 
-                let timeRemaining = 5;
+                let timeRemaining = 20;
 
                 const updateTimer = () => {
                     timerElement.textContent = timeRemaining;
@@ -1802,5 +1801,6 @@
                 }, true);
             });
         });
+    </script>
 </body>
 </html>
