@@ -8,37 +8,69 @@ import os
 logger = logging.getLogger(__name__)
 
 class KotakNeoAPI:
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(KotakNeoAPI, cls).__new__(cls)
-        return cls._instance
-
-    def __init__(self):
-        if not hasattr(self, 'client'):
+    """
+    Kotak Neo API handler - now supports per-user credentials.
+    Each user has their own instance with their credentials.
+    """
+    
+    def __init__(self, user=None, credentials=None):
+        """
+        Initialize the API handler with user credentials.
+        
+        Args:
+            user: Django User instance (will fetch credentials from database)
+            credentials: Dict with MPIN, TOTP_SECRET, CONSUMER_KEY, etc. (for testing/fallback)
+        """
+        self.user = user
+        self.is_authenticated = False
+        self.login_data = None
+        self.client = None
+        
+        # Get credentials from database if user provided, else use passed credentials
+        if user:
+            from trades.models import UserNeoCredentials
+            try:
+                user_creds = UserNeoCredentials.objects.get(user=user, is_active=True)
+                self.credentials = user_creds.get_decrypted_credentials()
+                self.user_credentials_obj = user_creds
+            except UserNeoCredentials.DoesNotExist:
+                raise Exception(f"No active Neo API credentials found for user {user.username}. Please configure your credentials.")
+        elif credentials:
+            self.credentials = credentials
+            self.user_credentials_obj = None
+        else:
+            # Fallback to settings (for backward compatibility)
             self.credentials = settings.KOTAK_NEO_API_CREDENTIALS
+            self.user_credentials_obj = None
+        
+        # Initialize the NeoAPI client
+        if self.credentials and 'CONSUMER_KEY' in self.credentials:
             self.client = NeoAPI(environment='prod', consumer_key=self.credentials['CONSUMER_KEY'])
-            self.is_authenticated = False
-            # Authenticate once during initialization
-            auth_result = self.authenticate()
-            if 'error' in auth_result:
-                raise Exception(f"Failed to authenticate Kotak Neo API: {auth_result['error']}")
-
+    
     def generate_totp(self):
+        """Generate TOTP token"""
+        if not self.credentials or 'TOTP_SECRET' not in self.credentials:
+            return None
         totp = pyotp.TOTP(self.credentials['TOTP_SECRET'])
-        print("Generating TOTP...")
+        logger.debug("Generating TOTP...")
         return totp.now()
 
     def authenticate(self):
+        """Authenticate with Kotak Neo API"""
         if self.is_authenticated:
             return {"status": "success", "message": "Already authenticated"}
+        
+        if not self.client:
+            return {"error": "API client not initialized. Please configure your credentials."}
+        
         try:
-            print("Attempting Kotak Neo API authentication...")
-            logger.info("Attempting Kotak Neo API authentication...")
-            login_response = self.client.totp_login(mobile_number=self.credentials['MOBILE_NUMBER'], 
-                                   ucc=self.credentials['UCC'], 
-                                   totp=self.generate_totp())
+            logger.info(f"Attempting Kotak Neo API authentication for user {self.user.username if self.user else 'unknown'}...")
+            
+            login_response = self.client.totp_login(
+                mobile_number=self.credentials['MOBILE_NUMBER'], 
+                ucc=self.credentials['UCC'], 
+                totp=self.generate_totp()
+            )
             
             if isinstance(login_response, dict) and ('error' in login_response or 'Error Message' in login_response):
                 return {"error": f"Login failed: {login_response}"}
@@ -50,7 +82,14 @@ class KotakNeoAPI:
 
             self.is_authenticated = True
             self.login_data = validate_response
-            logger.info("Authentication successful.")
+            
+            # Update last_used timestamp
+            if self.user_credentials_obj:
+                from django.utils import timezone
+                self.user_credentials_obj.last_used = timezone.now()
+                self.user_credentials_obj.save()
+            
+            logger.info(f"Authentication successful for {self.user.username if self.user else 'user'}.")
             return {"status": "success", "message": "Authenticated successfully"}
         except Exception as e:
             logger.error(f"An error occurred during authentication: {e}", exc_info=True)
@@ -68,7 +107,7 @@ class KotakNeoAPI:
             if isinstance(positions, dict) and ('error' in positions or 'Error Message' in positions):
                 return {"error": f"Could not fetch positions: {positions}"}
 
-            # Try to get account name from settings or login data
+            # Try to get account name from credentials
             account_name = self.credentials.get('ACCOUNT_NAME', 'Your Account')
             if account_name == 'Your Account' and hasattr(self, 'login_data') and isinstance(self.login_data, dict):
                 account_name = self.login_data.get('userName', self.login_data.get('clientName', account_name))

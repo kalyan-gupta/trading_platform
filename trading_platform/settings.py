@@ -27,6 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = ['*']
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Application definition
 
@@ -50,6 +51,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'trades.auth_middleware.SessionExpiryMiddleware',
 ]
 
 ROOT_URLCONF = 'trading_platform.urls'
@@ -138,3 +140,16 @@ try:
 except ImportError:
     print("Using placeholder credentials. Please update trading_platform/credentials.py with your actual API credentials.")
     pass
+
+# Session Configuration - 5 minutes expiry on inactivity
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+SESSION_COOKIE_AGE = 300  # 5 minutes in seconds
+SESSION_SAVE_EVERY_REQUEST = True  # Reset timer on every request
+SESSION_EXPIRE_AT_BROWSER_CLOSE = True
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = True
+CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
+
+# Login URL
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'index'

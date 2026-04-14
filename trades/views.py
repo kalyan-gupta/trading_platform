@@ -1,13 +1,19 @@
-from django.shortcuts import render
-from .kotak_neo_api import KotakNeoAPI
+from django.shortcuts import render, redirect
+from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth.models import User
 from django.contrib import messages
 from django.http import JsonResponse
 from django.conf import settings
+from .kotak_neo_api import KotakNeoAPI
+from .models import UserNeoCredentials, SessionActivity
+from .forms import LoginForm, RegistrationForm, UserNeoCredentialsForm, UserProfileForm
+from .decorators import login_required_with_session_check, ajax_login_required
 import json
 import duckdb
 import glob
 import os
 import threading
+from django.utils import timezone
 
 _duckdb_connection = duckdb.connect(database=':memory:')
 _duckdb_lock = threading.Lock()
@@ -36,8 +42,188 @@ def _get_scrip_data_files():
     return []
 
 
+# ==================== Authentication Views ====================
+
+def login_view(request):
+    """Handle user login"""
+    if request.user.is_authenticated:
+        return redirect('index')
+    
+    if request.method == 'POST':
+        form = LoginForm(request.POST)
+        if form.is_valid():
+            username = form.cleaned_data.get('username')
+            password = form.cleaned_data.get('password')
+            user = authenticate(request, username=username, password=password)
+            
+            if user is not None:
+                login(request, user)
+                # Create or update session activity
+                SessionActivity.objects.update_or_create(
+                    user=user,
+                    defaults={
+                        'session_key': request.session.session_key,
+                        'ip_address': get_client_ip(request)
+                    }
+                )
+                messages.success(request, f"Welcome back, {username}!")
+                
+                # Redirect to next page or index
+                next_page = request.GET.get('next', 'index')
+                return redirect(next_page)
+            else:
+                messages.error(request, "Invalid username or password.")
+    else:
+        form = LoginForm()
+    
+    context = {
+        'form': form,
+        'expired': request.GET.get('expired') == 'true'
+    }
+    return render(request, 'trades/login.html', context)
+
+
+def register_view(request):
+    """Handle user registration"""
+    if request.user.is_authenticated:
+        return redirect('index')
+    
+    if request.method == 'POST':
+        form = RegistrationForm(request.POST)
+        if form.is_valid():
+            user = form.save()
+            messages.success(request, "Registration successful! Please configure your Neo API credentials.")
+            
+            # Redirect to credentials setup
+            login(request, user)
+            SessionActivity.objects.update_or_create(
+                user=user,
+                defaults={
+                    'session_key': request.session.session_key,
+                    'ip_address': get_client_ip(request)
+                }
+            )
+            return redirect('setup_credentials')
+    else:
+        form = RegistrationForm()
+    
+    return render(request, 'trades/register.html', {'form': form})
+
+
+def logout_view(request):
+    """Handle user logout"""
+    if request.user.is_authenticated:
+        username = request.user.username
+        SessionActivity.objects.filter(user=request.user).delete()
+        logout(request)
+        messages.success(request, f"Logged out successfully. Goodbye, {username}!")
+    return redirect('login')
+
+
+# ==================== Credentials Management Views ====================
+
+@login_required_with_session_check
+def setup_credentials(request):
+    """Setup or update Neo API credentials"""
+    try:
+        user_creds = UserNeoCredentials.objects.get(user=request.user)
+    except UserNeoCredentials.DoesNotExist:
+        user_creds = None
+    
+    if request.method == 'POST':
+        form = UserNeoCredentialsForm(request.POST, instance=user_creds)
+        if form.is_valid():
+            credentials = form.save(commit=False)
+            credentials.user = request.user
+            credentials.save()
+            messages.success(request, "Neo API credentials updated successfully!")
+            return redirect('index')
+    else:
+        form = UserNeoCredentialsForm(instance=user_creds)
+    
+    return render(request, 'trades/credentials.html', {'form': form, 'has_credentials': user_creds is not None})
+
+
+@login_required_with_session_check
+def view_credentials(request):
+    """View credentials (read-only)"""
+    try:
+        user_creds = UserNeoCredentials.objects.get(user=request.user)
+        credentials = user_creds.get_decrypted_credentials()
+    except UserNeoCredentials.DoesNotExist:
+        credentials = None
+        user_creds = None
+    
+    return render(request, 'trades/view_credentials.html', {
+        'credentials': credentials,
+        'user_creds': user_creds
+    })
+
+
+@login_required_with_session_check
+def edit_credentials(request):
+    """Edit credentials"""
+    try:
+        user_creds = UserNeoCredentials.objects.get(user=request.user)
+    except UserNeoCredentials.DoesNotExist:
+        messages.error(request, "Please setup your credentials first.")
+        return redirect('setup_credentials')
+    
+    if request.method == 'POST':
+        form = UserNeoCredentialsForm(request.POST, instance=user_creds)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Credentials updated successfully!")
+            return redirect('index')
+    else:
+        form = UserNeoCredentialsForm(instance=user_creds)
+    
+    return render(request, 'trades/credentials.html', {'form': form, 'has_credentials': True})
+
+
+@login_required_with_session_check
+def profile_view(request):
+    """View and edit user profile"""
+    if request.method == 'POST':
+        form = UserProfileForm(request.POST, instance=request.user)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "Profile updated successfully!")
+            return redirect('profile')
+    else:
+        form = UserProfileForm(instance=request.user)
+    
+    try:
+        user_creds = UserNeoCredentials.objects.get(user=request.user)
+        has_credentials = True
+    except UserNeoCredentials.DoesNotExist:
+        has_credentials = False
+    
+    return render(request, 'trades/profile.html', {
+        'form': form,
+        'has_credentials': has_credentials
+    })
+
+
+def get_client_ip(request):
+    """Extract client IP address from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
+
+# ==================== Trading Views (Protected) ====================
+
+@login_required_with_session_check
 def refresh_scrip_master(request):
-    api = KotakNeoAPI()
+    try:
+        api = KotakNeoAPI(user=request.user)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+    
     try:
         result = api.download_scrip_master()
         if result.get('status') == 'success':
@@ -48,6 +234,7 @@ def refresh_scrip_master(request):
         return JsonResponse({'status': 'error', 'message': str(e)})
 
 
+@login_required_with_session_check
 def refresh_scrip_cache(request):
     if request.method != 'GET':
         return JsonResponse({'status': 'error', 'message': 'Only GET requests are allowed.'}, status=405)
@@ -77,6 +264,8 @@ def refresh_scrip_cache(request):
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
+
+@login_required_with_session_check
 def search_scrip_cache(request):
     if request.method != 'GET':
         return JsonResponse({'error': 'Only GET requests are allowed'}, status=405)
@@ -178,6 +367,8 @@ def search_scrip_cache(request):
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
+
+@ajax_login_required
 def place_trade_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
@@ -201,7 +392,7 @@ def place_trade_ajax(request):
         elif price is None or price == '':
             return JsonResponse({'error': 'Price is required for limit orders.'}, status=400)
 
-        api = KotakNeoAPI()
+        api = KotakNeoAPI(user=request.user)
         margin_response = api.margin_required(
             instrument_token=instrument_token,
             quantity=quantity,
@@ -247,6 +438,7 @@ def place_trade_ajax(request):
         return JsonResponse({'error': f"An unexpected error occurred: {e}"}, status=500)
 
 
+@ajax_login_required
 def check_margin_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
@@ -269,7 +461,7 @@ def check_margin_ajax(request):
         elif price is None or price == '':
             return JsonResponse({'error': 'Price is required for limit orders.'}, status=400)
 
-        api = KotakNeoAPI()
+        api = KotakNeoAPI(user=request.user)
         margin_response = api.margin_required(
             instrument_token=instrument_token,
             quantity=quantity,
@@ -291,6 +483,7 @@ def check_margin_ajax(request):
         return JsonResponse({'error': f"An unexpected error occurred: {e}"}, status=500)
 
 
+@ajax_login_required
 def cancel_order_ajax(request):
     if request.method != 'POST':
         return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
@@ -302,7 +495,7 @@ def cancel_order_ajax(request):
         if not order_id:
             return JsonResponse({'error': 'Order ID is required.'}, status=400)
 
-        api = KotakNeoAPI()
+        api = KotakNeoAPI(user=request.user)
         api_response = api.cancel_order(order_id)
         
         if 'errMsg' in api_response:
@@ -316,6 +509,7 @@ def cancel_order_ajax(request):
         return JsonResponse({'error': f"An unexpected error occurred: {e}"}, status=500)
 
 
+@login_required_with_session_check
 def search_scrips_ajax(request):
     if request.method != 'GET':
         return JsonResponse({'error': 'Only GET requests are allowed'}, status=405)
@@ -326,7 +520,11 @@ def search_scrips_ajax(request):
     if not symbol:
         return JsonResponse({'error': 'Symbol is required.'}, status=400)
 
-    api = KotakNeoAPI()
+    try:
+        api = KotakNeoAPI(user=request.user)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    
     results = api.search_scrip(exchange_segment=exchange_segment, symbol=symbol)
 
     if 'error' in results:
@@ -335,6 +533,7 @@ def search_scrips_ajax(request):
     return JsonResponse(results, safe=False)
 
 
+@login_required_with_session_check
 def get_depth(request):
     if request.method != 'GET':
         return JsonResponse({'error': 'Only GET requests are allowed'}, status=405)
@@ -345,7 +544,11 @@ def get_depth(request):
     if not p_symbol or not p_exch_seg:
         return JsonResponse({'error': 'p_symbol and p_exch_seg are required.'}, status=400)
 
-    api = KotakNeoAPI()
+    try:
+        api = KotakNeoAPI(user=request.user)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=400)
+    
     instrument_tokens = [{"instrument_token": p_symbol, "exchange_segment": p_exch_seg}]
     result = api.quotes(instrument_tokens=instrument_tokens, quote_type="all")
 
@@ -365,9 +568,23 @@ def get_depth(request):
         return JsonResponse({'error': 'No depth data received'}, status=400)
 
 
+@login_required_with_session_check
 def index(request):
+    """Main trading dashboard - requires authentication"""
     api_response = None
-    api = KotakNeoAPI()
+    
+    # Check if user has credentials setup
+    try:
+        user_creds = UserNeoCredentials.objects.get(user=request.user, is_active=True)
+    except UserNeoCredentials.DoesNotExist:
+        messages.warning(request, "Please configure your Neo API credentials to start trading.")
+        return redirect('setup_credentials')
+    
+    try:
+        api = KotakNeoAPI(user=request.user)
+    except Exception as e:
+        messages.error(request, f"Error initializing API: {str(e)}")
+        return redirect('setup_credentials')
 
     if request.method == 'POST':
         if 'cancel_order_id' in request.POST:
@@ -377,7 +594,6 @@ def index(request):
                 messages.error(request, f"Cancellation failed: {api_response['error']}")
             else:
                 messages.success(request, f"Order cancellation requested: {api_response.get('result', 'Success')}")
-
 
     # Fetch account information, holdings, limits, and order book for display.
     # These methods will trigger authentication on the first call if not already authenticated.
@@ -415,7 +631,6 @@ def index(request):
         
         # If we couldn't parse it for any reason, show the debug info
         debug_limits = raw_limits
-
 
     if isinstance(order_book, dict) and 'error' in order_book:
         messages.warning(request, f"Could not fetch order book: {order_book['error']}")

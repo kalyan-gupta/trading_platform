@@ -1,6 +1,7 @@
 import json
 import logging
 from channels.generic.websocket import WebsocketConsumer
+from django.contrib.auth.models import AnonymousUser
 from .kotak_neo_api import KotakNeoAPI
 
 logger = logging.getLogger(__name__)
@@ -8,9 +9,20 @@ logger = logging.getLogger(__name__)
 class LiveQuotesConsumer(WebsocketConsumer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.api = KotakNeoAPI()
+        self.api = None
 
     def connect(self):
+        user = self.scope.get('user', None)
+        if not user or not hasattr(user, 'is_authenticated') or not user.is_authenticated:
+            self.close(code=4001)
+            return
+
+        try:
+            self.api = KotakNeoAPI(user=user)
+        except Exception as e:
+            self.close(code=4002)
+            return
+
         self.accept()
         auth_response = self.api.authenticate()
         if 'error' in auth_response:
