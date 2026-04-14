@@ -74,6 +74,28 @@
             from { opacity: 0; transform: translateY(-10px); }
             to { opacity: 1; transform: translateY(0); }
         }
+
+        /* Session modal styling */
+        #sessionExtensionModal .modal-header {
+            background-color: #ffc107;
+            border-color: #ffc107;
+        }
+
+        #sessionExtensionModal .modal-title {
+            font-weight: 600;
+        }
+
+        #totpReauthModal .modal-header {
+            background-color: #0dcaf0;
+            border-color: #0dcaf0;
+        }
+
+        #totp-code {
+            font-size: 1.5rem;
+            letter-spacing: 0.5rem;
+            font-weight: bold;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -604,6 +626,59 @@
             </div>
         </div>
         {% endif %}
+        
+        <!-- Session Extension Modal -->
+        <div class="modal fade" id="sessionExtensionModal" tabindex="-1" aria-labelledby="sessionExtensionModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-warning">
+                        <h5 class="modal-title text-dark" id="sessionExtensionModalLabel">
+                            <i class="bi bi-clock-history me-2"></i>Session Expiring Soon
+                        </h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>Your session will expire in <span id="session-time-remaining" class="fw-bold text-danger">1 minute</span>.</p>
+                        <p>Would you like to extend your session?</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" id="logout-now-btn">Logout Now</button>
+                        <button type="button" class="btn btn-primary" id="extend-session-btn">Extend Session</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TOTP Reauthentication Modal -->
+        <div class="modal fade" id="totpReauthModal" tabindex="-1" aria-labelledby="totpReauthModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content">
+                    <div class="modal-header bg-info">
+                        <h5 class="modal-title text-white" id="totpReauthModalLabel">
+                            <i class="bi bi-shield-lock me-2"></i>Reauthenticate Trade Session
+                        </h5>
+                    </div>
+                    <div class="modal-body">
+                        <p>Your trade session has expired. Please enter your TOTP code to continue trading.</p>
+                        <form id="totp-reauth-form">
+                            {% csrf_token %}
+                            <div class="mb-3">
+                                <label for="totp-code" class="form-label">TOTP Code</label>
+                                <input type="text" class="form-control text-center" id="totp-code" name="totp" maxlength="6" pattern="[0-9]{6}" required>
+                                <div class="form-text">Enter the 6-digit code from your authenticator app.</div>
+                            </div>
+                        </form>
+                        <div class="text-center">
+                            <p class="text-muted small">Time remaining: <span id="totp-timer" class="fw-bold text-danger">5</span> seconds</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-danger" id="totp-cancel-btn" disabled>Cancel</button>
+                        <button type="button" class="btn btn-primary" id="totp-submit-btn">Authenticate</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
     </main>
 
     <footer class="py-4 mt-auto">
@@ -1188,7 +1263,33 @@
                     })
                     .then(response => response.json())
                     .then(result => {
-                        if (result.status === 'success' && result.data) {
+                        if (result.status === 'reauth_required') {
+                            showTOTPReauthModal(() => {
+                                // Retry margin check after reauth
+                                fetch('/check_margin_ajax/', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                    },
+                                    body: JSON.stringify(marginRequest)
+                                })
+                                .then(response => response.json())
+                                .then(retryResult => {
+                                    if (retryResult.status === 'success' && retryResult.data) {
+                                        showMarginResult(orderMarginResult, retryResult.data);
+                                    } else {
+                                        orderMarginResult.className = 'alert alert-danger';
+                                        orderMarginResult.textContent = retryResult.error || 'Margin check failed after reauth.';
+                                    }
+                                })
+                                .catch(error => {
+                                    console.error('Error retrying margin check:', error);
+                                    orderMarginResult.className = 'alert alert-danger';
+                                    orderMarginResult.textContent = 'An error occurred while checking margin requirements.';
+                                });
+                            });
+                        } else if (result.status === 'success' && result.data) {
                             showMarginResult(orderMarginResult, result.data);
                         } else if (result.error) {
                             orderMarginResult.className = 'alert alert-danger';
@@ -1272,40 +1373,150 @@
                 })
                 .then(response => response.json())
                 .then(marginResult => {
-                    if (marginResult.status !== 'success') {
+                    if (marginResult.status === 'reauth_required') {
+                        showTOTPReauthModal(() => {
+                            // Retry margin check after reauth
+                            fetch('/check_margin_ajax/', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                },
+                                body: JSON.stringify(marginRequest)
+                            })
+                            .then(response => response.json())
+                            .then(retryMarginResult => {
+                                if (retryMarginResult.status === 'success') {
+                                    // Continue with place order
+                                    const formatted = showMarginResult(orderMarginResult, retryMarginResult.data);
+                                    if (formatted.insufFund > 0 || formatted.status !== 'OK') {
+                                        showNotification('Insufficient margin. Please add funds and try again.', 'danger');
+                                        return;
+                                    }
+
+                                    const orderData = {
+                                        instrument_token: instrumentToken,
+                                        trading_symbol: tradingSymbol,
+                                        quantity: quantity,
+                                        transaction_type: transactionType,
+                                        exchange_segment: pExchSeg,
+                                        product_type: productType,
+                                        order_type: orderType,
+                                        price: orderType === 'MKT' ? '0' : price
+                                    };
+
+                                    fetch('/place_trade_ajax/', {
+                                        method: 'POST',
+                                        headers: {
+                                            'Content-Type': 'application/json',
+                                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                        },
+                                        body: JSON.stringify(orderData)
+                                    })
+                                    .then(response => response.json())
+                                    .then(result => {
+                                        if (result.status === 'success') {
+                                            showNotification(result.message, 'success');
+                                            const orderModal = bootstrap.Modal.getInstance(document.getElementById('placeOrderModal'));
+                                            orderModal.hide();
+                                            setTimeout(() => window.location.reload(), 1500);
+                                        } else if (result.status === 'reauth_required') {
+                                            showNotification('Trade session expired. Please reauthenticate.', 'warning');
+                                        } else {
+                                            showNotification(result.message || 'An unknown error occurred.', 'danger');
+                                        }
+                                    })
+                                    .finally(() => {
+                                        submitBtn.disabled = false;
+                                        submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
+                                    });
+                                } else {
+                                    orderMarginResult.className = 'alert alert-danger';
+                                    orderMarginResult.textContent = retryMarginResult.error || 'Margin check failed after reauth.';
+                                    submitBtn.disabled = false;
+                                    submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
+                                }
+                            });
+                        });
+                    } else if (marginResult.status !== 'success') {
                         orderMarginResult.className = 'alert alert-danger';
                         orderMarginResult.textContent = marginResult.error || 'Margin check failed. Please add funds and try again.';
                         throw new Error('Margin validation failed');
+                    } else {
+                        const formatted = showMarginResult(orderMarginResult, marginResult.data);
+                        if (formatted.insufFund > 0 || formatted.status !== 'OK') {
+                            throw new Error('Insufficient margin');
+                        }
+
+                        const orderData = {
+                            instrument_token: instrumentToken,
+                            trading_symbol: tradingSymbol,
+                            quantity: quantity,
+                            transaction_type: transactionType,
+                            exchange_segment: pExchSeg,
+                            product_type: productType,
+                            order_type: orderType,
+                            price: orderType === 'MKT' ? '0' : price
+                        };
+
+                        return fetch('/place_trade_ajax/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            },
+                            body: JSON.stringify(orderData)
+                        });
                     }
-
-                    const formatted = showMarginResult(orderMarginResult, marginResult.data);
-                    if (formatted.insufFund > 0 || formatted.status !== 'OK') {
-                        throw new Error('Insufficient margin');
-                    }
-
-                    const orderData = {
-                        instrument_token: instrumentToken,
-                        trading_symbol: tradingSymbol,
-                        quantity: quantity,
-                        transaction_type: transactionType,
-                        exchange_segment: pExchSeg,
-                        product_type: productType,
-                        order_type: orderType,
-                        price: orderType === 'MKT' ? '0' : price
-                    };
-
-                    return fetch('/place_trade_ajax/', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
-                        },
-                        body: JSON.stringify(orderData)
-                    });
                 })
-                .then(response => response.json())
+                .then(response => {
+                    // Only process if it's a Response object (from the place order fetch)
+                    if (response && response.json) {
+                        return response.json();
+                    }
+                })
                 .then(result => {
-                    if (result.status === 'success') {
+                    if (!result) return; // No result if reauth flow handled it
+                    
+                    if (result.status === 'reauth_required') {
+                        showTOTPReauthModal(() => {
+                            // Retry placing order after reauth
+                            const orderData = {
+                                instrument_token: instrumentToken,
+                                trading_symbol: tradingSymbol,
+                                quantity: quantity,
+                                transaction_type: transactionType,
+                                exchange_segment: pExchSeg,
+                                product_type: productType,
+                                order_type: orderType,
+                                price: orderType === 'MKT' ? '0' : price
+                            };
+
+                            fetch('/place_trade_ajax/', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                },
+                                body: JSON.stringify(orderData)
+                            })
+                            .then(response => response.json())
+                            .then(retryResult => {
+                                if (retryResult.status === 'success') {
+                                    showNotification(retryResult.message, 'success');
+                                    const orderModal = bootstrap.Modal.getInstance(document.getElementById('placeOrderModal'));
+                                    orderModal.hide();
+                                    setTimeout(() => window.location.reload(), 1500);
+                                } else {
+                                    showNotification(retryResult.message || 'An unknown error occurred.', 'danger');
+                                }
+                            })
+                            .finally(() => {
+                                submitBtn.disabled = false;
+                                submitBtn.innerHTML = '<i class="bi bi-send-fill me-1"></i> Place Order';
+                            });
+                        });
+                    } else if (result.status === 'success') {
                         showNotification(result.message, 'success');
                         const orderModal = bootstrap.Modal.getInstance(document.getElementById('placeOrderModal'));
                         orderModal.hide();
@@ -1399,7 +1610,197 @@
                     confirmBtn.innerHTML = '<i class="bi bi-x-circle me-1"></i> Yes, Cancel Order';
                 });
             });
+
+            // ==================== Session Management ====================
+
+            let sessionWarningShown = false;
+            let sessionExtensionTimer;
+            let totpTimer;
+            let totpCountdown;
+
+            // Function to check session expiry and show warning
+            function checkSessionExpiry() {
+                // Session expires in 5 minutes (300 seconds)
+                const sessionExpiryTime = 300 * 1000; // 5 minutes in milliseconds
+                const warningTime = 60 * 1000; // Show warning 1 minute before expiry
+
+                // Reset timer on any user activity
+                clearTimeout(sessionExtensionTimer);
+                sessionExtensionTimer = setTimeout(() => {
+                    if (!sessionWarningShown) {
+                        showSessionExtensionModal();
+                        sessionWarningShown = true;
+                    }
+                }, sessionExpiryTime - warningTime);
+            }
+
+            // Show session extension modal
+            function showSessionExtensionModal() {
+                const modal = new bootstrap.Modal(document.getElementById('sessionExtensionModal'));
+                let timeRemaining = 60; // 1 minute
+
+                const timerElement = document.getElementById('session-time-remaining');
+                const updateTimer = () => {
+                    timerElement.textContent = `${Math.ceil(timeRemaining / 60)} minute${Math.ceil(timeRemaining / 60) > 1 ? 's' : ''}`;
+                    timeRemaining -= 1;
+                    if (timeRemaining <= 0) {
+                        clearInterval(timerInterval);
+                        window.location.href = '/logout/';
+                    }
+                };
+
+                const timerInterval = setInterval(updateTimer, 1000);
+                updateTimer();
+
+                // Handle extend session button
+                document.getElementById('extend-session-btn').onclick = function() {
+                    fetch('/extend_session/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        }
+                    })
+                    .then(response => response.json())
+                    .then(result => {
+                        if (result.status === 'success') {
+                            showNotification('Session extended successfully.', 'success');
+                            modal.hide();
+                            sessionWarningShown = false;
+                            checkSessionExpiry(); // Reset the timer
+                        } else {
+                            showNotification('Failed to extend session.', 'danger');
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error extending session:', error);
+                        showNotification('An error occurred while extending session.', 'danger');
+                    });
+                };
+
+                // Handle logout now button
+                document.getElementById('logout-now-btn').onclick = function() {
+                    window.location.href = '/logout/';
+                };
+
+                modal.show();
+            }
+
+            // Function to show TOTP reauth modal with timer
+            function showTOTPReauthModal(onSuccess) {
+                const modal = new bootstrap.Modal(document.getElementById('totpReauthModal'), {
+                    backdrop: 'static',
+                    keyboard: false
+                });
+                const form = document.getElementById('totp-reauth-form');
+                const totpInput = document.getElementById('totp-code');
+                const timerElement = document.getElementById('totp-timer');
+                const submitBtn = document.getElementById('totp-submit-btn');
+                const cancelBtn = document.getElementById('totp-cancel-btn');
+
+                let timeRemaining = 5;
+
+                const updateTimer = () => {
+                    timerElement.textContent = timeRemaining;
+                    timeRemaining -= 1;
+                    if (timeRemaining < 0) {
+                        clearInterval(totpCountdown);
+                        // Timeout: logout both sessions
+                        showNotification('Authentication timeout. Logging out...', 'danger');
+                        setTimeout(() => {
+                            window.location.href = '/logout/';
+                        }, 2000);
+                    }
+                };
+
+                totpCountdown = setInterval(updateTimer, 1000);
+                updateTimer();
+
+                // Handle form submission
+                form.onsubmit = function(e) {
+                    e.preventDefault();
+                    const totp = totpInput.value.trim();
+                    if (totp.length !== 6 || !/^\d{6}$/.test(totp)) {
+                        showNotification('Please enter a valid 6-digit TOTP code.', 'warning');
+                        return;
+                    }
+
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Authenticating...';
+
+                    fetch('/reauthenticate/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        },
+                        body: new URLSearchParams({
+                            'totp': totp,
+                            'csrfmiddlewaretoken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        })
+                    })
+                    .then(response => {
+                        if (response.redirected) {
+                            // Success - redirect to index
+                            clearInterval(totpCountdown);
+                            modal.hide();
+                            if (onSuccess) onSuccess();
+                            showNotification('Trade session reauthenticated successfully.', 'success');
+                        } else {
+                            return response.text().then(text => {
+                                throw new Error(text);
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('TOTP authentication failed:', error);
+                        showNotification('Invalid TOTP code. Please try again.', 'danger');
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = 'Authenticate';
+                        totpInput.focus();
+                    });
+                };
+
+                // Handle cancel button (disabled during countdown)
+                cancelBtn.onclick = function() {
+                    if (timeRemaining >= 0) {
+                        showNotification('Please wait for authentication or timeout.', 'warning');
+                        return;
+                    }
+                    clearInterval(totpCountdown);
+                    modal.hide();
+                    window.location.href = '/logout/';
+                };
+
+                modal.show();
+                totpInput.focus();
+            }
+
+            // Function to check if SDK session is valid before trading operations
+            function ensureSDKSession(onSuccess) {
+                // For simplicity, we'll assume we need to check on each trade action
+                // In a real implementation, you might want to check periodically or on specific triggers
+                showTOTPReauthModal(onSuccess);
+            }
+
+            // Override trading functions to check SDK session
+            const originalPlaceOrder = () => {
+                // This would be the place order logic
+                ensureSDKSession(() => {
+                    // Proceed with placing order
+                    showNotification('Order placed successfully.', 'success');
+                });
+            };
+
+            // Start session expiry checking
+            checkSessionExpiry();
+
+            // Reset session timer on user activity
+            ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(event => {
+                document.addEventListener(event, () => {
+                    checkSessionExpiry();
+                }, true);
+            });
         });
-    </script>
 </body>
 </html>

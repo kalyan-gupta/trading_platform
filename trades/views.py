@@ -121,6 +121,19 @@ def logout_view(request):
     return redirect('login')
 
 
+@login_required_with_session_check
+def extend_session(request):
+    """Extend the user's session by updating the last activity."""
+    if request.method == 'POST':
+        # Update session activity to extend the session
+        SessionActivity.objects.update_or_create(
+            user=request.user,
+            defaults={'last_activity': timezone.now()}
+        )
+        return JsonResponse({'status': 'success', 'message': 'Session extended successfully.'})
+    return JsonResponse({'status': 'error', 'message': 'Invalid request method.'})
+
+
 # ==================== Credentials Management Views ====================
 
 @login_required_with_session_check
@@ -461,6 +474,8 @@ def place_trade_ajax(request):
         )
 
         if isinstance(margin_response, dict) and 'error' in margin_response:
+            if 'One-time TOTP code is required' in margin_response['error']:
+                return JsonResponse({'status': 'reauth_required', 'message': 'Trade session expired. Please reauthenticate.'}, status=401)
             return JsonResponse({'status': 'error', 'message': f"Margin check failed: {margin_response['error']}"}, status=400)
 
         margin_data = margin_response.get('data', {}) if isinstance(margin_response, dict) else {}
@@ -482,6 +497,11 @@ def place_trade_ajax(request):
             product=product_type,
             order_type=order_type
         )
+
+        if isinstance(api_response, dict) and 'error' in api_response:
+            if 'One-time TOTP code is required' in api_response['error']:
+                return JsonResponse({'status': 'reauth_required', 'message': 'Trade session expired. Please reauthenticate.'}, status=401)
+            return JsonResponse({'status': 'error', 'message': api_response['error']}, status=400)
 
         if 'errMsg' in api_response:
             return JsonResponse({'status': 'error', 'message': api_response['errMsg']}, status=400)
@@ -530,6 +550,8 @@ def check_margin_ajax(request):
         )
 
         if isinstance(margin_response, dict) and 'error' in margin_response:
+            if 'One-time TOTP code is required' in margin_response['error']:
+                return JsonResponse({'status': 'reauth_required', 'message': 'Trade session expired. Please reauthenticate.'}, status=401)
             return JsonResponse({'error': f"Margin check failed: {margin_response['error']}"}, status=400)
 
         return JsonResponse({'status': 'success', 'data': margin_response.get('data', margin_response)})
@@ -554,6 +576,11 @@ def cancel_order_ajax(request):
 
         api = KotakNeoAPI(user=request.user)
         api_response = api.cancel_order(order_id)
+        
+        if isinstance(api_response, dict) and 'error' in api_response:
+            if 'One-time TOTP code is required' in api_response['error']:
+                return JsonResponse({'status': 'reauth_required', 'message': 'Trade session expired. Please reauthenticate.'}, status=401)
+            return JsonResponse({'status': 'error', 'message': api_response['error']}, status=400)
         
         if 'errMsg' in api_response:
             return JsonResponse({'status': 'error', 'message': api_response['errMsg']}, status=400)

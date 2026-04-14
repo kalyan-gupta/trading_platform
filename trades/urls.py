@@ -6,6 +6,7 @@ urlpatterns = [
     path('login/', views.login_view, name='login'),
     path('register/', views.register_view, name='register'),
     path('logout/', views.logout_view, name='logout'),
+    path('extend_session/', views.extend_session, name='extend_session'),
     
     # Credentials Management URLs
     path('credentials/setup/', views.setup_credentials, name='setup_credentials'),
