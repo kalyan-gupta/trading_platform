@@ -143,14 +143,32 @@
             {% endfor %}
         {% endif %}
         
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="bi bi-toggles me-2"></i>Feature Configuration</h5>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" id="settings-form">
+                    {% csrf_token %}
+                    
+                    <p class="text-muted">Enable or disable specific trading platform features.</p>
+
+                    <div class="mb-3 form-check form-switch fs-5 mt-3">
+                        <input class="form-check-input" type="checkbox" role="switch" id="enable_password_reset" name="enable_password_reset" {% if settings.enable_password_reset %}checked{% endif %}>
+                        <label class="form-check-label fs-6 mt-1 ms-2" for="enable_password_reset">
+                            <strong>Enable "Forgot Password" feature</strong><br>
+                            <span class="text-muted small fw-normal">Allows users to request a temporary password via email from the login page.</span>
+                        </label>
+                    </div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-envelope-at-fill me-2"></i>SMTP Credentials & Settings</h5>
             </div>
             <div class="card-body p-4">
-                <p class="text-muted">These settings are used to send system emails globally.</p>
-                <form method="post">
-                    {% csrf_token %}
+                <p class="text-muted">These settings are used to send system emails globally (e.g. for the password reset feature).</p>
                     
                     <div class="section-title">Server Configuration</div>
                     
@@ -174,8 +192,14 @@
                     <div class="section-title">Authentication</div>
 
                     <div class="mb-3">
-                        <label for="host_user" class="form-label">Email Account (SMTP User)</label>
-                        <input type="email" class="form-control" id="host_user" name="host_user" value="{{ settings.host_user }}" placeholder="your-email@example.com">
+                        <label for="host_user" class="form-label">Email Account (SMTP Logon User)</label>
+                        <input type="text" class="form-control" id="host_user" name="host_user" value="{{ settings.host_user }}" placeholder="your-username-or-email">
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="from_address" class="form-label">From Address (Sender Email)</label>
+                        <input type="email" class="form-control" id="from_address" name="from_address" value="{{ settings.from_address|default_if_none:'' }}" placeholder="noreply@jkterminal.com">
+                        <div class="form-text">If left blank, the SMTP Logon User will be used as the sender.</div>
                     </div>
 
                     <div class="mb-3">
@@ -187,8 +211,8 @@
                     </div>
                     
                     <div class="mt-4 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="bi bi-check-circle"></i> Save SMTP Settings
+                        <button type="submit" form="settings-form" class="btn btn-primary">
+                            <i class="bi bi-check-circle"></i> Save All Settings
                         </button>
                         <a href="{% url 'index' %}" class="btn btn-outline-secondary">
                             <i class="bi bi-x-circle"></i> Cancel

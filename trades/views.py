@@ -5,8 +5,8 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.conf import settings
 from .kotak_neo_api import KotakNeoAPI
-from .models import UserNeoCredentials, SessionActivity, SMTPSettings
-from .forms import LoginForm, RegistrationForm, UserNeoCredentialsForm, UserProfileForm, TOTPForm
+from .models import UserNeoCredentials, SessionActivity, SMTPSettings, UserSecurity
+from .forms import LoginForm, RegistrationForm, UserNeoCredentialsForm, UserProfileForm, TOTPForm, ForgotPasswordForm, SetNewPasswordForm, ChangePasswordForm
 from .decorators import login_required_with_session_check, ajax_login_required
 import json
 import duckdb
@@ -78,7 +78,8 @@ def login_view(request):
     
     context = {
         'form': form,
-        'expired': request.GET.get('expired') == 'true'
+        'expired': request.GET.get('expired') == 'true',
+        'smtp_settings': SMTPSettings.get_settings()
     }
     return render(request, 'trades/login.html', context)
 
@@ -303,7 +304,9 @@ def admin_settings_view(request):
         except ValueError:
             settings_obj.port = 587
         settings_obj.use_tls = request.POST.get('use_tls') == 'on'
+        settings_obj.enable_password_reset = request.POST.get('enable_password_reset') == 'on'
         settings_obj.host_user = request.POST.get('host_user', '')
+        settings_obj.from_address = request.POST.get('from_address', '')
         
         new_password = request.POST.get('host_password', '')
         if new_password:
@@ -317,6 +320,174 @@ def admin_settings_view(request):
     return render(request, 'trades/admin_settings.html', {
         'settings': settings_obj
     })
+
+# ==================== Password Management Views ====================
+
+def generate_temp_password(length=8):
+    import random
+    import string
+    chars = string.ascii_letters + string.digits
+    return ''.join(random.choice(chars) for _ in range(length))
+
+def send_password_change_confirmation_email(user):
+    """Send confirmation email when password is changed successfully"""
+    settings_obj = SMTPSettings.get_settings()
+    if not user.email or not settings_obj.host:
+        return
+        
+    try:
+        from django.core.mail import get_connection, EmailMessage
+        connection = get_connection(
+            host=settings_obj.host,
+            port=settings_obj.port,
+            username=settings_obj.host_user,
+            password=settings_obj.get_decrypted_password(),
+            use_tls=settings_obj.use_tls
+        )
+        from_addr = settings_obj.from_address if settings_obj.from_address else settings_obj.host_user
+        email_msg = EmailMessage(
+            subject="JK Terminal - Password Changed Successfully",
+            body=f"Hello {user.username},\n\nYour password has been successfully changed.\n\nIf you did not authorize this change, please contact an administrator immediately.\n\nThank you.",
+            from_email=from_addr,
+            to=[user.email],
+            connection=connection
+        )
+        email_msg.send(fail_silently=False)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error sending password confirmation email: {e}")
+
+def forgot_password_view(request):
+    """Handle forgotten password requests utilizing SMTP settings"""
+    settings_obj = SMTPSettings.get_settings()
+    if not settings_obj.enable_password_reset:
+        messages.error(request, "Password reset is currently disabled by the administrator.")
+        return redirect('login')
+
+    if request.method == 'POST':
+        form = ForgotPasswordForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data.get('email')
+            try:
+                user = User.objects.get(email=email)
+            except User.DoesNotExist:
+                user = None
+
+            if user:
+                temp_password = generate_temp_password()
+                
+                # Send email FIRST to ensure no lockout on failure
+                try:
+                    from django.core.mail import get_connection, EmailMessage
+                    connection = get_connection(
+                        host=settings_obj.host,
+                        port=settings_obj.port,
+                        username=settings_obj.host_user,
+                        password=settings_obj.get_decrypted_password(),
+                        use_tls=settings_obj.use_tls
+                    )
+                    from_addr = settings_obj.from_address if settings_obj.from_address else settings_obj.host_user
+                    email_msg = EmailMessage(
+                        subject="JK Terminal - Temporary Password",
+                        body=f"Hello {user.username},\n\nYour temporary password is: {temp_password}\n\nPlease login using this password. You will be asked to set a new permanent password immediately.\n\nThank you.",
+                        from_email=from_addr,
+                        to=[user.email],
+                        connection=connection
+                    )
+                    email_msg.send(fail_silently=False)
+                    
+                    # If email sent successfully, apply password and force change lock
+                    user.set_password(temp_password)
+                    user.save()
+                    
+                    security, _ = UserSecurity.objects.get_or_create(user=user)
+                    security.force_password_change = True
+                    security.save()
+                    
+                    messages.success(request, "If an account exists with that email, a temporary password has been sent.")
+                except Exception as e:
+                    import logging
+                    logging.getLogger(__name__).error(f"Error sending password reset email: {e}")
+                    messages.error(request, "Failed to send reset email. Your password was not changed. Please try again later or contact an administrator.")
+            else:
+                # Still show success to prevent email enumeration
+                messages.success(request, "If an account exists with that email, a temporary password has been sent.")
+            return redirect('login')
+    else:
+        form = ForgotPasswordForm()
+        
+    return render(request, 'trades/forgot_password.html', {'form': form})
+
+
+@login_required_with_session_check
+def set_new_password_view(request):
+    """Force user to specify a new password after a reset"""
+    security = getattr(request.user, 'security', None)
+    if not security or not security.force_password_change:
+        messages.info(request, "You are not required to set a new password at this time.")
+        return redirect('index')
+
+    if request.method == 'POST':
+        form = SetNewPasswordForm(request.POST)
+        if form.is_valid():
+            new_password = form.cleaned_data.get('new_password')
+            request.user.set_password(new_password)
+            request.user.save()
+            
+            # Clear flag
+            security.force_password_change = False
+            security.save()
+            
+            # Re-authenticate the user without logging them out entirely
+            from django.contrib.auth import update_session_auth_hash
+            update_session_auth_hash(request, request.user)
+            
+            # Send confirmation
+            send_password_change_confirmation_email(request.user)
+            
+            messages.success(request, "Your new password has been set successfully.")
+            return redirect('index')
+    else:
+        form = SetNewPasswordForm()
+
+    return render(request, 'trades/change_password.html', {
+        'form': form, 
+        'title': 'Set New Permanent Password',
+        'is_force_change': True
+    })
+
+@login_required_with_session_check
+def change_password_view(request):
+    """Allow user to manually change their password from profile requiring current password"""
+    if request.method == 'POST':
+        form = ChangePasswordForm(request.POST)
+        if form.is_valid():
+            current_password = form.cleaned_data.get('current_password')
+            if not request.user.check_password(current_password):
+                form.add_error('current_password', "Your current password was entered incorrectly.")
+            else:
+                new_password = form.cleaned_data.get('new_password')
+                request.user.set_password(new_password)
+                request.user.save()
+                
+                # Maintain authenticated session
+                from django.contrib.auth import update_session_auth_hash
+                update_session_auth_hash(request, request.user)
+                
+                # Send confirmation
+                send_password_change_confirmation_email(request.user)
+                
+                messages.success(request, "Your password has been changed successfully.")
+                return redirect('profile')
+    else:
+        form = ChangePasswordForm()
+
+    return render(request, 'trades/change_password.html', {
+        'form': form,
+        'title': 'Change Password',
+        'is_force_change': False
+    })
+
 
 
 # ==================== Trading Views (Protected) ====================

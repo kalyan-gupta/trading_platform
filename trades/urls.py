@@ -7,6 +7,9 @@ urlpatterns = [
     path('register/', views.register_view, name='register'),
     path('logout/', views.logout_view, name='logout'),
     path('extend_session/', views.extend_session, name='extend_session'),
+    path('forgot-password/', views.forgot_password_view, name='forgot_password'),
+    path('set-new-password/', views.set_new_password_view, name='set_new_password'),
+    path('change-password/', views.change_password_view, name='change_password'),
     
     # Credentials Management URLs
     path('credentials/setup/', views.setup_credentials, name='setup_credentials'),

@@ -156,8 +156,10 @@ class SMTPSettings(models.Model):
     host = models.CharField(max_length=255, default='smtp.gmail.com')
     port = models.IntegerField(default=587)
     use_tls = models.BooleanField(default=True)
-    host_user = models.EmailField(max_length=255, blank=True, null=True)
+    host_user = models.CharField(max_length=255, blank=True, null=True)
+    from_address = models.CharField(max_length=255, blank=True, null=True)
     host_password = models.CharField(max_length=500, blank=True, null=True)  # Will be encrypted
+    enable_password_reset = models.BooleanField(default=False)
     
     class Meta:
         verbose_name = "SMTP Settings"
@@ -218,3 +220,16 @@ class SMTPSettings(models.Model):
     def save(self, *args, **kwargs):
         self.host_password = self.encrypt_field(self.host_password)
         super().save(*args, **kwargs)
+
+
+class UserSecurity(models.Model):
+    """Store additional security settings for a user"""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='security')
+    force_password_change = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = "User Security"
+        verbose_name_plural = "User Security"
+
+    def __str__(self):
+        return f"{self.user.username} Security"

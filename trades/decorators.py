@@ -40,6 +40,14 @@ def login_required_with_session_check(view_func):
             )
         except Exception as e:
             logger.error(f"Error checking session activity: {e}")
+            
+        # Check force password change
+        if getattr(request.user, 'security', None) and request.user.security.force_password_change:
+            allowed_paths = [reverse('set_new_password'), reverse('logout')]
+            if request.path not in allowed_paths:
+                from django.contrib import messages
+                messages.warning(request, "You must set a new permanent password before continuing.")
+                return redirect('set_new_password')
         
         # Call the original view
         return view_func(request, *args, **kwargs)
@@ -86,6 +94,12 @@ def ajax_login_required(view_func):
             )
         except Exception as e:
             logger.error(f"Error checking session activity: {e}")
+            
+        # Check force password change
+        if getattr(request.user, 'security', None) and request.user.security.force_password_change:
+            allowed_paths = [reverse('set_new_password'), reverse('logout')]
+            if request.path not in allowed_paths:
+                return JsonResponse({'error': 'Password change required', 'redirect_url': reverse('set_new_password')}, status=403)
         
         return view_func(request, *args, **kwargs)
     
