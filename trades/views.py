@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.conf import settings
 from .kotak_neo_api import KotakNeoAPI
-from .models import UserNeoCredentials, SessionActivity
+from .models import UserNeoCredentials, SessionActivity, SMTPSettings
 from .forms import LoginForm, RegistrationForm, UserNeoCredentialsForm, UserProfileForm, TOTPForm
 from .decorators import login_required_with_session_check, ajax_login_required
 import json
@@ -283,6 +283,40 @@ def logout_sdk_for_user(user):
     except Exception as e:
         import logging
         logging.getLogger(__name__).warning(f"SDK logout failed: {e}")
+
+
+# ==================== Admin Views (Protected) ====================
+
+@login_required_with_session_check
+def admin_settings_view(request):
+    """View and update global SMTP settings (Superuser only)"""
+    if not request.user.is_superuser:
+        messages.error(request, "Access denied. Superuser only.")
+        return redirect('index')
+    
+    settings_obj = SMTPSettings.get_settings()
+    
+    if request.method == 'POST':
+        settings_obj.host = request.POST.get('host', 'smtp.gmail.com')
+        try:
+            settings_obj.port = int(request.POST.get('port', 587))
+        except ValueError:
+            settings_obj.port = 587
+        settings_obj.use_tls = request.POST.get('use_tls') == 'on'
+        settings_obj.host_user = request.POST.get('host_user', '')
+        
+        new_password = request.POST.get('host_password', '')
+        if new_password:
+            # Replaced plain text password, saving it will encrypt it
+            settings_obj.host_password = new_password
+            
+        settings_obj.save()
+        messages.success(request, "SMTP settings updated successfully!")
+        return redirect('admin_settings')
+
+    return render(request, 'trades/admin_settings.html', {
+        'settings': settings_obj
+    })
 
 
 # ==================== Trading Views (Protected) ====================

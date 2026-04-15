@@ -149,3 +149,72 @@ class SessionActivity(models.Model):
     def is_expired(self, timeout_seconds=300):
         """Check if session has expired (default 5 minutes)"""
         return (timezone.now() - self.last_activity).total_seconds() > timeout_seconds
+
+
+class SMTPSettings(models.Model):
+    """Store global SMTP settings editable by superusers"""
+    host = models.CharField(max_length=255, default='smtp.gmail.com')
+    port = models.IntegerField(default=587)
+    use_tls = models.BooleanField(default=True)
+    host_user = models.EmailField(max_length=255, blank=True, null=True)
+    host_password = models.CharField(max_length=500, blank=True, null=True)  # Will be encrypted
+    
+    class Meta:
+        verbose_name = "SMTP Settings"
+        verbose_name_plural = "SMTP Settings"
+
+    def __str__(self):
+        return f"SMTP Configuration ({self.host}:{self.port})"
+
+    @classmethod
+    def get_settings(cls):
+        obj, created = cls.objects.get_or_create(id=1)
+        return obj
+
+    @staticmethod
+    def get_cipher():
+        key = os.environ.get('ENCRYPTION_KEY', 'default-key-change-in-production')
+        import hashlib
+        import base64
+        hash_key = hashlib.sha256(key.encode()).digest()
+        return Fernet(base64.urlsafe_b64encode(hash_key))
+
+    def encrypt_field(self, value):
+        if not value:
+            return value
+        if self.is_encrypted(value):
+            return value
+        cipher = self.get_cipher()
+        return cipher.encrypt(value.encode()).decode()
+
+    def is_encrypted(self, value):
+        if not isinstance(value, str) or not value.startswith('gAAAAA'):
+            return False
+        try:
+            cipher = self.get_cipher()
+            cipher.decrypt(value.encode())
+            return True
+        except Exception:
+            return False
+
+    def decrypt_field(self, encrypted_value):
+        if not encrypted_value:
+            return encrypted_value
+        cipher = self.get_cipher()
+        current = encrypted_value
+        for _ in range(5):
+            try:
+                decrypted = cipher.decrypt(current.encode()).decode()
+            except Exception:
+                break
+            if decrypted == current:
+                break
+            current = decrypted
+        return current
+
+    def get_decrypted_password(self):
+        return self.decrypt_field(self.host_password)
+
+    def save(self, *args, **kwargs):
+        self.host_password = self.encrypt_field(self.host_password)
+        super().save(*args, **kwargs)

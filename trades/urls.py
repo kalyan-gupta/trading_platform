@@ -16,6 +16,9 @@ urlpatterns = [
     # Profile URL
     path('profile/', views.profile_view, name='profile'),
     
+    # Admin Options
+    path('admin-settings/', views.admin_settings_view, name='admin_settings'),
+    
     # Trading URLs (Protected)
     path('', views.index, name='index'),
     path('place_trade_ajax/', views.place_trade_ajax, name='place_trade_ajax'),
