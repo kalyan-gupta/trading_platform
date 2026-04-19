@@ -295,15 +295,15 @@ class KotakNeoAPI:
             logger.error(f"Error checking margin: {e}", exc_info=True)
             return {"error": f"An error occurred while checking margin: {e}"}
 
-    def subscribe(self, instrument_tokens, on_message):
+    def subscribe(self, instrument_tokens, on_message, isIndex=False, isDepth=False):
         auth_response = self.authenticate()
         if 'error' in auth_response:
             return auth_response
             
         try:
             self.client.on_message = on_message
-            self.client.subscribe(instrument_tokens=instrument_tokens)
-            logger.info(f"Subscribed to instruments: {instrument_tokens}")
+            self.client.subscribe(instrument_tokens=instrument_tokens, isIndex=isIndex, isDepth=isDepth)
+            logger.info(f"Subscribed to instruments: {instrument_tokens} (Index: {isIndex}, Depth: {isDepth})")
         except Exception as e:
             logger.error(f"Error subscribing to instruments: {e}", exc_info=True)
             return {"error": f"An error occurred during subscription: {e}"}

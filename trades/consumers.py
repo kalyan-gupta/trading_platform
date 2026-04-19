@@ -38,16 +38,23 @@ class LiveQuotesConsumer(WebsocketConsumer):
     def receive(self, text_data):
         try:
             text_data_json = json.loads(text_data)
-            message_type = text_data_json.get('message')
+            action = text_data_json.get('action')
+            params = text_data_json.get('params', {})
             
-            if message_type == 'subscribe':
-                instruments = text_data_json.get('instruments')
+            if action == 'subscribe':
+                instruments = params.get('instrument_tokens')
+                isIndex = params.get('isIndex', False)
+                isDepth = params.get('isDepth', False)
                 if instruments:
-                    # The `subscribe` method will need to be implemented in KotakNeoAPI
-                    # It should take a callback function to handle incoming data
-                    self.api.subscribe(instruments, on_message=self.on_quote)
+                    self.api.subscribe(instruments, on_message=self.on_quote, isIndex=isIndex, isDepth=isDepth)
+            elif action == 'unsubscribe':
+                instruments = params.get('instrument_tokens')
+                isIndex = params.get('isIndex', False)
+                isDepth = params.get('isDepth', False)
+                if instruments:
+                    self.api.unsubscribe(instruments, isIndex=isIndex, isDepth=isDepth)
             else:
-                logger.warning(f"Unknown message type received: {message_type}")
+                logger.warning(f"Unknown message type received: {action}")
 
         except json.JSONDecodeError:
             logger.error("Received non-JSON message")

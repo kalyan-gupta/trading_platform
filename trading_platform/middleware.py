@@ -33,8 +33,19 @@ class RequestLoggingMiddleware:
         
         start_time = time.time()
         
+        # Extract params securely
+        query_params = dict(request.GET.items())
+        post_params = {}
+        if request.method in ['POST', 'PUT', 'PATCH']:
+            try:
+                post_params = dict(request.POST.items())
+                if 'password' in post_params:
+                    post_params['password'] = '***'
+            except Exception:
+                pass # Don't crash if body is unparseable raw json
+                
         # Log the beginning of the request
-        logger.info(f"Request Started: {request.method} {request.path}")
+        logger.info(f"Request Started: {request.method} {request.path} | GET: {query_params} | POST: {post_params}")
         
         try:
             # Process the request

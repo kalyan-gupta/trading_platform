@@ -834,6 +834,8 @@ def search_scrip_cache(request):
             
             data = [dict(zip(columns, row)) for row in results]
             
+            logger.info(f"DuckDB DB Scrip search execution for '{search_term}' using filters (exchange: {exchange}, inst_type: {inst_type}) returned {len(data)} results.")
+            
             return JsonResponse({
                 'results': data,
                 'count': len(data),
@@ -1060,6 +1062,7 @@ def get_depth(request):
             'buy_depth': quote.get('depth', {}).get('buy', []),
             'sell_depth': quote.get('depth', {}).get('sell', [])
         }
+        logger.info(f"Successfully retrieved static depth and LTP ({quote.get('ltp')}) from SDK for target {p_symbol} ({p_exch_seg}).")
         return JsonResponse(depth_data)
     else:
         return JsonResponse({'error': 'No depth data received'}, status=400)

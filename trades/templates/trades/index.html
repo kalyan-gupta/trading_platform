@@ -712,31 +712,75 @@
                 }
             };
 
+            let currentDepthSymbol = null;
+            let currentDepthExch = null;
+            
             tradeSocket.onmessage = function(e) {
                 const incoming_data = JSON.parse(e.data);
                 
                 if (incoming_data.type === 'quote' && incoming_data.data) {
-                    const quote = incoming_data.data;
-                    const instrumentSymbol = quote.instrument_token;
-
-                    const ltpCell = document.getElementById(`ltp-${instrumentSymbol}`);
-                    if (ltpCell) {
-                        const lastPrice = parseFloat(quote.last_price);
-                        ltpCell.innerText = `₹${lastPrice.toFixed(2)}`;
-
-                        const pnlCell = document.getElementById(`pnl-${instrumentSymbol}`);
-                        const row = ltpCell.closest('tr');
-                        const avgPrice = parseFloat(row.querySelector('[data-avg-price]').dataset.avgPrice);
-                        const quantityVal = parseInt(row.querySelector('[data-quantity]').dataset.quantity);
+                    const dataArray = Array.isArray(incoming_data.data) ? incoming_data.data : [incoming_data.data];
+                    
+                    dataArray.forEach(quote => {
+                        if (!quote) return;
                         
-                        if (!isNaN(avgPrice) && !isNaN(quantityVal)) {
-                            const pnl = (lastPrice - avgPrice) * quantityVal;
-                            pnlCell.innerHTML = `₹${pnl.toFixed(2)} <i class="bi ${pnl > 0 ? 'bi-arrow-up-right' : (pnl < 0 ? 'bi-arrow-down-left' : '')}"></i>`;
-                            pnlCell.className = `fw-bold ${pnl >= 0 ? 'text-success' : 'text-danger'}`;
+                        const instrumentSymbol = quote.instrument_token;
+
+                        // 1. Update Holdings LTP/PNL
+                        const ltpCell = document.getElementById(`ltp-${instrumentSymbol}`);
+                        if (ltpCell && quote.last_price || quote.ltp) {
+                            const lastPrice = parseFloat(quote.last_price || quote.ltp);
+                            if (!isNaN(lastPrice)) {
+                                ltpCell.innerText = `₹${lastPrice.toFixed(2)}`;
+
+                                const pnlCell = document.getElementById(`pnl-${instrumentSymbol}`);
+                                if (pnlCell) {
+                                    const row = ltpCell.closest('tr');
+                                    const avgPrice = parseFloat(row.querySelector('[data-avg-price]').dataset.avgPrice);
+                                    const quantityVal = parseInt(row.querySelector('[data-quantity]').dataset.quantity);
+                                    
+                                    if (!isNaN(avgPrice) && !isNaN(quantityVal)) {
+                                        const pnl = (lastPrice - avgPrice) * quantityVal;
+                                        pnlCell.innerHTML = `₹${pnl.toFixed(2)} <i class="bi ${pnl > 0 ? 'bi-arrow-up-right' : (pnl < 0 ? 'bi-arrow-down-left' : '')}"></i>`;
+                                        pnlCell.className = `fw-bold ${pnl >= 0 ? 'text-success' : 'text-danger'}`;
+                                    }
+                                }
+                            }
                         }
-                    }
+                        
+                        // 2. Update Depth Modal if this is the active symbol
+                        if (currentDepthSymbol === instrumentSymbol && quote.depth) {
+                            if (quote.last_price || quote.ltp) {
+                                document.getElementById('depth-ltp').textContent = `₹${parseFloat(quote.last_price || quote.ltp).toFixed(2)}`;
+                            }
+                            
+                            if (quote.depth.buy) {
+                                let buyHtml = '';
+                                quote.depth.buy.forEach(level => {
+                                    buyHtml += `<tr>
+                                        <td class="text-success fw-bold">₹${parseFloat(level.price).toFixed(2)}</td>
+                                        <td>${level.quantity}</td>
+                                        <td>${level.orders}</td>
+                                    </tr>`;
+                                });
+                                document.getElementById('buy-depth-body').innerHTML = buyHtml || '<tr><td colspan="3" class="text-center text-muted">No buy orders</td></tr>';
+                            }
+                            
+                            if (quote.depth.sell) {
+                                let sellHtml = '';
+                                quote.depth.sell.forEach(level => {
+                                    sellHtml += `<tr>
+                                        <td class="text-danger fw-bold">₹${parseFloat(level.price).toFixed(2)}</td>
+                                        <td>${level.quantity}</td>
+                                        <td>${level.orders}</td>
+                                    </tr>`;
+                                });
+                                document.getElementById('sell-depth-body').innerHTML = sellHtml || '<tr><td colspan="3" class="text-center text-muted">No sell orders</td></tr>';
+                            }
+                        }
+                    });
                 } else {
-                    console.log("Received data:", incoming_data);
+                    console.log("WebSocket Debug:", incoming_data);
                 }
             };
 
@@ -1045,6 +1089,20 @@
                             return;
                         }
                         
+                        // Set current global tracking variables and open WebSockets!
+                        currentDepthSymbol = pSymbol;
+                        currentDepthExch = pExchSeg;
+                        
+                        if (tradeSocket.readyState === WebSocket.OPEN) {
+                            tradeSocket.send(JSON.stringify({
+                                'action': 'subscribe',
+                                'params': { 
+                                    'instrument_tokens': [{ "instrument_token": pSymbol, "exchange_segment": pExchSeg }],
+                                    'isDepth': true 
+                                }
+                            }));
+                        }
+                        
                         // Update LTP
                         document.getElementById('depth-ltp').textContent = `₹${parseFloat(data.ltp).toFixed(2)}`;
                         
@@ -1075,6 +1133,21 @@
                         showNotification('An error occurred while fetching depth data.', 'danger');
                         depthModal.hide();
                     });
+            });
+            
+            // Handle clearing depth stream when modal closes
+            document.getElementById('depthModal').addEventListener('hidden.bs.modal', function () {
+                if (currentDepthSymbol && currentDepthExch && tradeSocket.readyState === WebSocket.OPEN) {
+                    tradeSocket.send(JSON.stringify({
+                        'action': 'unsubscribe',
+                        'params': { 
+                            'instrument_tokens': [{ "instrument_token": currentDepthSymbol, "exchange_segment": currentDepthExch }],
+                            'isDepth': true 
+                        }
+                    }));
+                }
+                currentDepthSymbol = null;
+                currentDepthExch = null;
             });
 
             document.getElementById('modal-place-order-btn').addEventListener('click', function() {
