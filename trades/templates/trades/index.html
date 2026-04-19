@@ -278,7 +278,26 @@
             </div>
         </div>
 
-        <!-- Scrip Action Modal -->
+    <!-- SDK Re-authentication Modal -->
+    <div class="modal fade" id="sdkAuthRequiredModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content bg-dark text-white border-warning">
+                <div class="modal-header border-warning">
+                    <h5 class="modal-title text-warning"><i class="bi bi-exclamation-triangle-fill me-2"></i>SDK Authentication Required</h5>
+                </div>
+                <div class="modal-body text-center">
+                    <p>Your Kotak Neo SDK session for this browser is not active or has expired.</p>
+                    <p class="text-muted small">Live market data and trade placement require a fresh session authentication.</p>
+                </div>
+                <div class="modal-footer border-warning justify-content-center">
+                    <a href="{% url 'profile' %}" class="btn btn-warning"><i class="bi bi-key-fill me-2"></i>Re-authenticate Now</a>
+                    <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Later</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scrip Action Modal -->
         <div class="modal fade" id="scripActionModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content">
@@ -704,13 +723,27 @@
                     const instruments = Array.from(instrumentRows).map(row => {
                         return { "instrument_token": row.dataset.instrument, "exchange_segment": "nse_cm" }; // Adjust segment if needed
                     });
-                    console.log("Subscribing to instruments:", instruments);
-                    tradeSocket.send(JSON.stringify({
+                    console.log("Queuing initial subscriptions:", instruments);
+                    pendingSubscriptions.push({
                         'action': 'subscribe',
                         'params': { 'instrument_tokens': instruments }
-                    }));
+                    });
+                    processPendingSubscriptions();
                 }
             };
+            
+            // Flag to track if the WebSocket is authenticated on the backend
+            let isSocketAuthenticated = false;
+            let pendingSubscriptions = [];
+            
+            function processPendingSubscriptions() {
+                if (isSocketAuthenticated && tradeSocket.readyState === WebSocket.OPEN) {
+                    pendingSubscriptions.forEach(sub => {
+                        tradeSocket.send(JSON.stringify(sub));
+                    });
+                    pendingSubscriptions = [];
+                }
+            }
 
             let currentDepthSymbol = null;
             let currentDepthExch = null;
@@ -785,6 +818,10 @@
                             document.getElementById('order-ltp-badge').textContent = `LTP: ₹${parseFloat(quote.ltp).toFixed(2)}`;
                         }
                     });
+                } else if (incoming_data.message === "Connected and authenticated") {
+                    console.log("WebSocket Backend Auth Confirmed");
+                    isSocketAuthenticated = true;
+                    processPendingSubscriptions();
                 } else {
                     console.log("WebSocket Debug:", incoming_data);
                 }
@@ -1416,6 +1453,22 @@
                 currentOrderSymbol = null;
                 currentOrderExch = null;
             });
+
+            // --- SDK Status Check & Modal ---
+            function checkSDKStatus() {
+                fetch('/check_sdk_status/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success' && !data.is_authenticated) {
+                            const authModal = new bootstrap.Modal(document.getElementById('sdkAuthRequiredModal'));
+                            authModal.show();
+                        }
+                    })
+                    .catch(err => console.error('Error checking SDK status:', err));
+            }
+
+            // Check status on page load
+            setTimeout(checkSDKStatus, 1000); // Slight delay for smoother UI load
 
             function formatMarginResult(data) {
                 const avlMrgn = parseFloat(data.avlMrgn || data.avlCash || 0).toFixed(2);

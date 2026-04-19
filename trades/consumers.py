@@ -28,7 +28,8 @@ class LiveQuotesConsumer(WebsocketConsumer):
             return
 
         try:
-            self.api = KotakNeoAPI(user=user)
+            session_key = self.scope.get('session').session_key if self.scope.get('session') else None
+            self.api = KotakNeoAPI(user=user, session_id=session_key)
         except Exception as e:
             logger.error(f"WebSocket connection error: {e}")
             self.close(code=4002)

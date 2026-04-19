@@ -40,4 +40,5 @@ urlpatterns = [
     path('get_ltp/', views.get_ltp, name='get_ltp'),
     path('reauthenticate/', views.reauthenticate_view, name='reauthenticate'),
     path('logout_sdk/', views.logout_sdk_session, name='logout_sdk'),
+    path('check_sdk_status/', views.check_sdk_status, name='check_sdk_status'),
 ]

@@ -208,7 +208,7 @@ def logout_view(request):
     """Handle user logout"""
     if request.user.is_authenticated:
         username = request.user.username
-        logout_sdk_for_user(request.user)
+        logout_sdk_for_user(request.user, request=request)
         SessionActivity.objects.filter(user=request.user).delete()
         logout(request)
         logger.info(f"User '{username}' logged out.")
@@ -245,7 +245,7 @@ def setup_credentials(request):
             credentials = form.save(commit=False)
             credentials.user = request.user
             credentials.save()
-            logout_sdk_for_user(request.user)
+            logout_sdk_for_user(request.user, request=request)
             messages.success(request, "Neo API credentials updated successfully! Please reauthenticate the trading session.")
             return redirect('index')
     else:
@@ -283,7 +283,7 @@ def reauthenticate_view(request):
         form = TOTPForm(request.POST)
         if form.is_valid():
             totp = form.cleaned_data['totp']
-            api = KotakNeoAPI(user=request.user)
+            api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
             auth_result = api.authenticate(totp=totp, force_refresh=True)
             if auth_result.get('status') == 'success':
                 messages.success(request, "Neo SDK session authenticated successfully.")
@@ -301,7 +301,7 @@ def reauthenticate_view(request):
 @login_required_with_session_check
 def logout_sdk_session(request):
     """Force logout of the user's Neo SDK session."""
-    logout_sdk_for_user(request.user)
+    logout_sdk_for_user(request.user, request=request)
     messages.success(request, "Neo SDK session has been logged out.")
     return redirect('profile')
 
@@ -319,7 +319,7 @@ def edit_credentials(request):
         form = UserNeoCredentialsForm(request.POST, instance=user_creds)
         if form.is_valid():
             form.save()
-            logout_sdk_for_user(request.user)
+            logout_sdk_for_user(request.user, request=request)
             messages.success(request, "Credentials updated successfully! Please reauthenticate the trading session.")
             return redirect('index')
     else:
@@ -370,10 +370,11 @@ def get_client_ip(request):
     return ip
 
 
-def logout_sdk_for_user(user):
+def logout_sdk_for_user(user, request=None):
     """Logout the Kotak Neo SDK session for the given user."""
     try:
-        api = KotakNeoAPI(user=user)
+        session_id = request.session.session_key if request else None
+        api = KotakNeoAPI(user=user, session_id=session_id)
         api.logout()
     except Exception as e:
         import logging
@@ -696,7 +697,7 @@ def change_password_view(request):
 @login_required_with_session_check
 def refresh_scrip_master(request):
     try:
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
     except Exception as e:
         return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
     
@@ -872,7 +873,7 @@ def place_trade_ajax(request):
         elif price is None or price == '':
             return JsonResponse({'error': 'Price is required for limit orders.'}, status=400)
 
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
         margin_response = api.margin_required(
             instrument_token=instrument_token,
             quantity=quantity,
@@ -950,7 +951,7 @@ def check_margin_ajax(request):
         elif price is None or price == '':
             return JsonResponse({'error': 'Price is required for limit orders.'}, status=400)
 
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
         margin_response = api.margin_required(
             instrument_token=instrument_token,
             quantity=quantity,
@@ -988,7 +989,7 @@ def cancel_order_ajax(request):
 
         logger.info(f"User '{request.user.username}' requesting cancellation of order ID: {order_id}")
 
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
         api_response = api.cancel_order(order_id)
         
         if isinstance(api_response, dict) and 'error' in api_response:
@@ -1019,7 +1020,7 @@ def search_scrips_ajax(request):
         return JsonResponse({'error': 'Symbol is required.'}, status=400)
 
     try:
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
     
@@ -1044,7 +1045,7 @@ def get_depth(request):
         return JsonResponse({'error': 'p_symbol and p_exch_seg are required.'}, status=400)
 
     try:
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
     
@@ -1080,7 +1081,7 @@ def get_ltp(request):
         return JsonResponse({'error': 'p_symbol and p_exch_seg are required.'}, status=400)
 
     try:
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=400)
 
@@ -1114,7 +1115,7 @@ def index(request):
         messages.warning(request, "Your Neo SDK session is not active or has expired. Please reauthenticate.")
 
     try:
-        api = KotakNeoAPI(user=request.user)
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
     except Exception as e:
         messages.error(request, f"Error initializing API: {str(e)}")
         return redirect('setup_credentials')
@@ -1236,3 +1237,13 @@ def index(request):
     }
 
     return render(request, 'trades/index.html', context)
+@ajax_login_required
+def check_sdk_status(request):
+    """Check if the SDK is authenticated for the current session."""
+    api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+    # Check cache directly to avoid any heavy authenticate() calls
+    is_hot = api.get_cached_session() is not None
+    return JsonResponse({
+        "status": "success",
+        "is_authenticated": is_hot
+    })

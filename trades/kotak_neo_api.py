@@ -16,16 +16,19 @@ class KotakNeoAPI:
 
     _session_cache = {}
     
-    def __init__(self, user=None, credentials=None):
+    def __init__(self, user=None, session_id=None, credentials=None):
         """
-        Initialize the API handler with user credentials.
+        Initialize the API handler with user credentials and session context.
         
         Args:
-            user: Django User instance (will fetch credentials from database)
-            credentials: Dict with MPIN, CONSUMER_KEY, etc. (for testing/fallback)
+            user: Django User instance
+            session_id: Unique Django session key to isolate SDK sessions per browser
+            credentials: Dict with MPIN, CONSUMER_KEY, etc.
         """
         self.user = user
         self.user_id = user.id if user else None
+        self.session_id = session_id or "global" # Fallback to global for background tasks
+        self.cache_key = (self.user_id, self.session_id)
         self.is_authenticated = False
         self.login_data = None
         self.client = None
@@ -55,7 +58,7 @@ class KotakNeoAPI:
         """Return cached authenticated session data if still valid."""
         if not self.user_id:
             return None
-        session_info = KotakNeoAPI._session_cache.get(self.user_id)
+        session_info = KotakNeoAPI._session_cache.get(self.cache_key)
         if not session_info:
             return None
         if session_info.get('expires_at') and timezone.now() < session_info['expires_at']:
@@ -68,17 +71,17 @@ class KotakNeoAPI:
         if not self.user_id:
             return
         expires_at = timezone.now() + timedelta(seconds=duration_seconds)
-        KotakNeoAPI._session_cache[self.user_id] = {
+        KotakNeoAPI._session_cache[self.cache_key] = {
             'client': self.client,
             'login_data': login_data,
             'expires_at': expires_at,
         }
 
     def clear_cached_session(self):
-        """Remove any cached SDK session for this user."""
+        """Remove any cached SDK session for this user session."""
         if not self.user_id:
             return
-        KotakNeoAPI._session_cache.pop(self.user_id, None)
+        KotakNeoAPI._session_cache.pop(self.cache_key, None)
 
     def authenticate(self, totp=None, force_refresh=False):
         """Authenticate with Kotak Neo API using a one-time TOTP code."""
@@ -394,10 +397,10 @@ class KotakNeoAPI:
         return {"status": "success", "downloaded_files": downloaded_files}
 
 
-def logout_sdk_session_for_user(user):
-    """Helper to clear any SDK session for the given user."""
+def logout_sdk_session_for_user(user, session_id=None):
+    """Helper to clear any SDK session for the given user and session."""
     try:
-        api = KotakNeoAPI(user=user)
+        api = KotakNeoAPI(user=user, session_id=session_id)
         api.logout()
     except Exception as e:
         logger.warning(f"Failed to logout SDK session for user {user.username if user else 'unknown'}: {e}", exc_info=True)
