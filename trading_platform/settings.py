@@ -44,6 +44,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'trading_platform.middleware.RequestLoggingMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -153,3 +154,49 @@ CSRF_COOKIE_SECURE = False  # Set to True in production with HTTPS
 # Login URL
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'index'
+
+import os
+# Configure logging: asynchronous, full debug capture, prepended with UUIDs.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'request_id': {
+            '()': 'trading_platform.logging_utils.RequestIDFilter',
+        },
+    },
+    'formatters': {
+        'multiline': {
+            '()': 'trading_platform.logging_utils.MultiLineFormatter',
+            'format': '%(asctime)s - %(levelname)s - [%(request_id)s] - %(message)s'
+        },
+    },
+    'handlers': {
+        'async_file': {
+            'level': 'DEBUG',
+            'class': 'trading_platform.logging_utils.SimpleAsyncFileHandler',
+            'filename': os.path.join(BASE_DIR, 'app_activity.log'),
+            'formatter': 'multiline',
+            'filters': ['request_id'],
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'multiline',
+            'filters': ['request_id'],
+        }
+    },
+    'loggers': {
+        # Catch-all root logger for everything
+        '': {
+            'handlers': ['async_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+        'django.server': {
+            'handlers': ['async_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}

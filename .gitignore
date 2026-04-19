@@ -20,3 +20,4 @@ env/
 # Custom rules
 trading_platform/credentials.py
 trades/scrip_data/
+app_activity.log
