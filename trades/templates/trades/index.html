@@ -714,6 +714,8 @@
 
             let currentDepthSymbol = null;
             let currentDepthExch = null;
+            let currentOrderSymbol = null;
+            let currentOrderExch = null;
             
             tradeSocket.onmessage = function(e) {
                 const incoming_data = JSON.parse(e.data);
@@ -777,6 +779,10 @@
                                 });
                                 document.getElementById('sell-depth-body').innerHTML = sellHtml || '<tr><td colspan="3" class="text-center text-muted">No sell orders</td></tr>';
                             }
+                        }
+                        // 3. Update Place Order Modal if this is the active symbol
+                        if (currentOrderSymbol === instrumentSymbol && quote.ltp) {
+                            document.getElementById('order-ltp-badge').textContent = `LTP: ₹${parseFloat(quote.ltp).toFixed(2)}`;
                         }
                     });
                 } else {
@@ -1196,6 +1202,19 @@
                         } else {
                             document.getElementById('order-ltp-badge').textContent = 'LTP: N/A';
                         }
+                        
+                        // Start live updates for this symbol
+                        currentOrderSymbol = pSymbol;
+                        currentOrderExch = pExchSeg;
+                        if (tradeSocket.readyState === WebSocket.OPEN) {
+                            tradeSocket.send(JSON.stringify({
+                                'action': 'subscribe',
+                                'params': { 
+                                    'instrument_tokens': [{ "instrument_token": pSymbol, "exchange_segment": pExchSeg }],
+                                    'isDepth': false 
+                                }
+                            }));
+                        }
                     })
                     .catch(() => {
                         document.getElementById('order-ltp-badge').textContent = 'LTP: N/A';
@@ -1381,6 +1400,21 @@
                         orderMarginResult.textContent = 'An error occurred while checking margin requirements.';
                     });
                 });
+            });
+
+            // Handle clearing order stream when modal closes
+            document.getElementById('placeOrderModal').addEventListener('hidden.bs.modal', function () {
+                if (currentOrderSymbol && currentOrderExch && tradeSocket.readyState === WebSocket.OPEN) {
+                    tradeSocket.send(JSON.stringify({
+                        'action': 'unsubscribe',
+                        'params': { 
+                            'instrument_tokens': [{ "instrument_token": currentOrderSymbol, "exchange_segment": currentOrderExch }],
+                            'isDepth': false 
+                        }
+                    }));
+                }
+                currentOrderSymbol = null;
+                currentOrderExch = null;
             });
 
             function formatMarginResult(data) {
