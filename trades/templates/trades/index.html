@@ -137,13 +137,16 @@
         .btn-toggle {
             flex: 1;
             border: none;
-            padding: 8px 12px;
-            font-size: 0.85rem;
+            padding: 8px 6px;
+            font-size: 0.8rem;
             font-weight: 600;
             border-radius: 6px;
             background: transparent;
             color: #5f6368;
             transition: all 0.2s;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .btn-toggle.active-buy { background-color: #2e7d32; color: white !important; }
@@ -669,12 +672,8 @@
                                 </div>
                             </div>
 
-                            <div class="row mt-4">
-                                <div class="col-md-6">
-                                    <div class="text-muted small mb-1 fw-bold">EST. VALUE</div>
-                                    <div class="h5 fw-bold text-dark" id="order-total-value">₹0.00</div>
-                                </div>
-                                <div class="col-md-6 text-end">
+                            <div class="row mt-3 text-end">
+                                <div class="col-12">
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none p-0" id="toggle-order-depth" data-bs-toggle="collapse" data-bs-target="#order-depth-section">
                                         <i class="bi bi-chevron-down me-1"></i> Market Depth
                                     </button>
@@ -702,10 +701,16 @@
                             <div id="order-margin-result" class="alert alert-info mt-3 py-2 small" style="display: none;"></div>
                         </form>
                     </div>
-                    <div class="modal-footer bg-light border-0 p-4 pt-0">
-                        <button type="button" class="btn btn-outline-secondary px-4 me-auto" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-outline-primary px-4" id="check-margin-btn">Margin</button>
-                        <button type="button" class="btn btn-primary btn-place-order px-5 flex-grow-1 ms-2" id="submit-order-btn">BUY</button>
+                    <div class="modal-footer bg-light border-0 p-4 pt-1 d-flex align-items-center justify-content-between">
+                        <div class="text-start">
+                            <div class="text-muted x-small fw-bold text-uppercase" id="est-value-label" style="font-size: 0.65rem; letter-spacing: 0.5px;">Est. Payable</div>
+                            <div class="h5 fw-bold text-dark mb-0" id="order-total-value">₹0.00</div>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-outline-secondary px-3" data-bs-dismiss="modal">Close</button>
+                            <button type="button" class="btn btn-outline-primary px-3" id="check-margin-btn">Margin</button>
+                            <button type="button" class="btn btn-primary btn-place-order px-4 shadow-sm" id="submit-order-btn" style="min-width: 120px;">BUY</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -877,6 +882,7 @@
             let currentDepthExch = null;
             let currentOrderSymbol = null;
             let currentOrderExch = null;
+            let lastActiveOrderLtp = 0;
 
             // Helper to render depth tables
             function updateDepthUI(quote, buyBodyId, sellBodyId) {
@@ -957,14 +963,17 @@
                             const side = document.getElementById('transaction-type').value;
                             
                             if (quote.ltp) {
-                                const formattedLtp = `₹${parseFloat(quote.ltp).toFixed(2)}`;
+                                lastActiveOrderLtp = parseFloat(quote.ltp);
+                                const formattedLtp = `₹${lastActiveOrderLtp.toFixed(2)}`;
                                 if (ltpHeader) ltpHeader.textContent = `LTP: ${formattedLtp}`;
                                 
-                                // Update submit button text to be more modern: "BUY @ ₹XXXX"
+                                // Update submit button text
                                 if (submitBtn) {
-                                    const actionText = side === 'B' ? 'BUY' : 'SELL';
-                                    submitBtn.textContent = `${actionText} @ ${formattedLtp}`;
+                                    submitBtn.textContent = side === 'B' ? 'BUY' : 'SELL';
                                 }
+
+                                // Trigger recalculation for live estimate
+                                if (typeof calculateTotal === 'function') calculateTotal();
                             }
                             
                             const orderDepthSection = document.getElementById('order-depth-section');
@@ -1379,9 +1388,17 @@
                 
                 // Helper to calculate total value
                 function calculateTotal() {
-                    if (!quantityInput || !priceInput || !totalValueInput) return;
+                    if (!quantityInput || !totalValueInput) return;
                     const quantity = parseInt(quantityInput.value) || 0;
-                    const price = parseFloat(priceInput.value) || 0;
+                    const orderType = document.getElementById('order-type').value;
+                    let price = 0;
+                    
+                    if (orderType === 'MKT') {
+                        price = lastActiveOrderLtp || 0;
+                    } else {
+                        price = parseFloat(priceInput.value) || 0;
+                    }
+                    
                     const total = quantity * price;
                     totalValueInput.textContent = `₹${total.toFixed(2)}`;
                 }
@@ -1450,6 +1467,7 @@
                     const buyBtn = document.getElementById('btn-side-buy');
                     const sellBtn = document.getElementById('btn-side-sell');
                     const submitBtn = document.getElementById('submit-order-btn');
+                    const estLabel = document.getElementById('est-value-label');
                     
                     transSelect.value = side;
                     
@@ -1457,14 +1475,16 @@
                         header.className = 'modal-header trade-header-buy';
                         buyBtn.classList.add('active-buy');
                         sellBtn.classList.remove('active-sell');
-                        submitBtn.className = 'btn btn-success btn-place-order px-5 flex-grow-1 ms-2';
+                        submitBtn.className = 'btn btn-success btn-place-order px-4 shadow-sm';
                         submitBtn.textContent = 'BUY';
+                        if (estLabel) estLabel.textContent = 'Est. Payable';
                     } else {
                         header.className = 'modal-header trade-header-sell';
                         sellBtn.classList.add('active-sell');
                         buyBtn.classList.remove('active-buy');
-                        submitBtn.className = 'btn btn-danger btn-place-order px-5 flex-grow-1 ms-2';
+                        submitBtn.className = 'btn btn-danger btn-place-order px-4 shadow-sm';
                         submitBtn.textContent = 'SELL';
+                        if (estLabel) estLabel.textContent = 'Est. Receivable';
                     }
                 }
 
@@ -1515,7 +1535,7 @@
                     productOptions = [{ value: 'CNC', label: 'DELIVERY' }, { value: 'MIS', label: 'INTRADAY' }];
                     defaultProduct = 'CNC';
                 } else if (pExchSeg.includes('_fo')) {
-                    productOptions = [{ value: 'NRML', label: 'CARRYFORWARD' }, { value: 'MIS', label: 'INTRADAY' }];
+                    productOptions = [{ value: 'NRML', label: 'OVERNIGHT' }, { value: 'MIS', label: 'INTRADAY' }];
                     defaultProduct = 'NRML';
                 } else {
                     productOptions = [{ value: 'MIS', label: 'INTRADAY' }];
@@ -1567,9 +1587,10 @@
                     .then(response => response.json())
                     .then(data => {
                         if (data.ltp) {
-                            const formatted = `₹${parseFloat(data.ltp).toFixed(2)}`;
+                            lastActiveOrderLtp = parseFloat(data.ltp);
+                            const formatted = `₹${lastActiveOrderLtp.toFixed(2)}`;
                             document.getElementById('order-ltp-badge-text').textContent = `LTP: ${formatted}`;
-                            document.getElementById('submit-order-btn').textContent = `BUY @ ${formatted}`;
+                            calculateTotal();
                         } else {
                             document.getElementById('order-ltp-badge-text').textContent = 'LTP: N/A';
                         }
