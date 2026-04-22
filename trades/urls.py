@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import views, views_basket
 
 urlpatterns = [
     # Authentication URLs
@@ -41,4 +41,12 @@ urlpatterns = [
     path('reauthenticate/', views.reauthenticate_view, name='reauthenticate'),
     path('logout_sdk/', views.logout_sdk_session, name='logout_sdk'),
     path('check_sdk_status/', views.check_sdk_status, name='check_sdk_status'),
+    
+    # Basket URLs
+    path('basket/add/', views_basket.add_to_basket_ajax, name='add_to_basket_ajax'),
+    path('basket/get/', views_basket.get_basket_ajax, name='get_basket_ajax'),
+    path('basket/remove/', views_basket.remove_from_basket_ajax, name='remove_from_basket_ajax'),
+    path('basket/clear/', views_basket.clear_basket_ajax, name='clear_basket_ajax'),
+    path('basket/update_sequence/', views_basket.update_basket_sequence_ajax, name='update_basket_sequence_ajax'),
+    path('basket/execute/', views_basket.execute_basket_ajax, name='execute_basket_ajax'),
 ]

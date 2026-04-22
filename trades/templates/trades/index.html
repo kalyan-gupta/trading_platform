@@ -6,6 +6,8 @@
     <title>Trading Platform</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- SortableJS for basket reordering -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         :root {
             --bs-primary-rgb: 68, 157, 255;
@@ -213,7 +215,13 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="collapse navbar-collapse" id="navbarSupportedContent">
-                    <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+                    <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-center">
+                        <li class="nav-item me-2">
+                            <button class="btn btn-dark position-relative p-2" id="basket-nav-btn" title="Basket Orders">
+                                <i class="bi bi-cart3 fs-5"></i>
+                                <span id="basket-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="display: none;">0</span>
+                            </button>
+                        </li>
                         <li class="nav-item dropdown">
                             <a class="nav-link dropdown-toggle" href="#" id="navbarDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false">
                                 <i class="bi bi-list"></i>
@@ -235,6 +243,77 @@
             </div>
         </div>
     </nav>
+
+    <!-- Basket Manager Modal -->
+    <div class="modal fade" id="basketModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white p-4">
+                    <h5 class="modal-title d-flex align-items-center">
+                        <i class="bi bi-basket2-fill me-2"></i> Basket Order Manager
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <div class="bg-light p-3 border-bottom d-flex justify-content-between align-items-center">
+                        <span class="text-muted small">
+                            <i class="bi bi-info-circle me-1"></i> Drag and drop to reorder execution sequence.
+                        </span>
+                        <button class="btn btn-sm btn-outline-danger" id="clear-basket-btn">
+                            <i class="bi bi-trash me-1"></i> Clear All
+                        </button>
+                    </div>
+                    
+                    <div class="basket-list-container" style="max-height: 450px; overflow-y: auto;">
+                        <ul class="list-group list-group-flush" id="basket-items-list">
+                            <!-- Items populated by JS -->
+                            <li class="list-group-item text-center py-5 text-muted" id="basket-empty-msg">
+                                <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                Your basket is empty.
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light p-4 border-top-0 d-flex justify-content-between align-items-center">
+                    <div class="text-start">
+                        <div class="text-muted x-small fw-bold text-uppercase" style="font-size: 0.65rem;">Total Orders</div>
+                        <div class="h5 fw-bold text-dark mb-0" id="basket-total-count">0</div>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-primary px-5 shadow-sm" id="execute-basket-btn">
+                            <i class="bi bi-lightning-charge-fill me-1"></i> Execute All
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Basket Execution Progress Modal -->
+    <div class="modal fade" id="basketProgressModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-body p-4 text-center">
+                    <div class="spinner-border text-primary mb-3" style="width: 3rem; height: 3rem;" role="status text-primary">
+                        <span class="visually-hidden">Executing...</span>
+                    </div>
+                    <h5 class="fw-bold" id="basket-progress-title">Executing Basket...</h5>
+                    <p class="text-muted small mb-3" id="basket-progress-status">Please do not refresh or close the page.</p>
+                    
+                    <div class="progress mb-3" style="height: 8px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated" id="basket-progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                    
+                    <div id="basket-execution-details" class="text-start x-small border rounded p-2 bg-light" style="max-height: 150px; overflow-y: auto; display: none;">
+                        <!-- Status logs -->
+                    </div>
+                    
+                    <button type="button" class="btn btn-primary w-100 mt-3" id="basket-finish-btn" style="display: none;" data-bs-dismiss="modal">Done</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <main class="container py-4">
         <div id="notification-area" class="position-fixed top-0 end-0 p-3" style="z-index: 1030"></div>
@@ -709,6 +788,7 @@
                         <div class="d-flex align-items-center gap-2">
                             <button type="button" class="btn btn-outline-secondary px-3" data-bs-dismiss="modal">Close</button>
                             <button type="button" class="btn btn-outline-primary px-3" id="check-margin-btn">Margin</button>
+                            <button type="button" class="btn btn-outline-dark px-3" id="add-to-basket-btn" title="Add to Basket"><i class="bi bi-cart-plus fs-5"></i></button>
                             <button type="button" class="btn btn-primary btn-place-order px-4 shadow-sm" id="submit-order-btn" style="min-width: 120px;">BUY</button>
                         </div>
                     </div>
@@ -2289,6 +2369,291 @@
                     showNotification('Order placed successfully.', 'success');
                 });
             };
+
+            // --- Basket Order System JS ---
+            let basketItems = [];
+
+            function refreshBasketBadge() {
+                const badge = document.getElementById('basket-badge');
+                const totalCountEl = document.getElementById('basket-total-count');
+                
+                fetch('/basket/get/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            basketItems = data.basket;
+                            const count = basketItems.length;
+                            
+                            if (badge) {
+                                if (count > 0) {
+                                    badge.textContent = count;
+                                    badge.style.display = 'block';
+                                } else {
+                                    badge.style.display = 'none';
+                                }
+                            }
+                            
+                            if (totalCountEl) {
+                                totalCountEl.textContent = count;
+                            }
+                        }
+                    })
+                    .catch(err => console.error('Error fetching basket:', err));
+            }
+
+            // Initial badge load
+            refreshBasketBadge();
+
+            // Add to Basket handler
+            document.getElementById('add-to-basket-btn').onclick = function() {
+                const data = {
+                    instrument_token: document.getElementById('order-instrument-token').value,
+                    exchange_segment: document.getElementById('order-exchange-seg').value,
+                    trading_symbol: document.getElementById('order-trading-symbol').value,
+                    quantity: document.getElementById('order-quantity').value,
+                    price: document.getElementById('order-price').value || 0,
+                    transaction_type: document.getElementById('transaction-type').value,
+                    product_type: document.getElementById('order-product-type').value,
+                    order_type: document.getElementById('order-type').value
+                };
+
+                fetch('/basket/add/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify(data)
+                })
+                .then(response => response.json())
+                .then(result => {
+                    if (result.status === 'success') {
+                        showNotification(result.message, 'success');
+                        refreshBasketBadge();
+                        // Removed auto-close as per user request
+                    } else {
+                        showNotification(result.error || 'Failed to add to basket', 'danger');
+                    }
+                })
+                .catch(err => showNotification('Error adding to basket', 'danger'));
+            };
+
+            // Basket Manager handlers
+            const basketModalEl = document.getElementById('basketModal');
+            document.getElementById('basket-nav-btn').onclick = () => {
+                new bootstrap.Modal(basketModalEl).show();
+            };
+
+            basketModalEl.addEventListener('show.bs.modal', loadBasketItems);
+
+            const clearBasketBtn = document.getElementById('clear-basket-btn');
+            let clearBasketConfirm = false;
+
+            clearBasketBtn.onclick = function() {
+                if (!clearBasketConfirm) {
+                    clearBasketConfirm = true;
+                    this.innerHTML = '<i class="bi bi-exclamation-triangle me-1"></i> Confirm Clear?';
+                    this.classList.replace('btn-outline-danger', 'btn-danger');
+                    
+                    // Reset after 3 seconds
+                    setTimeout(() => {
+                        clearBasketConfirm = false;
+                        this.innerHTML = '<i class="bi bi-trash me-1"></i> Clear All';
+                        this.classList.replace('btn-danger', 'btn-outline-danger');
+                    }, 3000);
+                    return;
+                }
+                
+                fetch('/basket/clear/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        showNotification(res.message, 'success');
+                        clearBasketConfirm = false;
+                        this.innerHTML = '<i class="bi bi-trash me-1"></i> Clear All';
+                        this.classList.replace('btn-danger', 'btn-outline-danger');
+                        loadBasketItems();
+                        refreshBasketBadge();
+                    }
+                });
+            };
+
+            function loadBasketItems() {
+                const list = document.getElementById('basket-items-list');
+                if (!list) return;
+                
+                fetch('/basket/get/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            basketItems = data.basket.sort((a, b) => a.sort_order - b.sort_order);
+                            list.innerHTML = '';
+                            
+                            if (basketItems.length === 0) {
+                                list.innerHTML = `
+                                    <li class="list-group-item text-center py-5 text-muted" id="basket-empty-msg">
+                                        <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                        Your basket is empty.
+                                    </li>
+                                `;
+                                return;
+                            }
+                            
+                            basketItems.forEach(item => {
+                                const li = document.createElement('li');
+                                li.className = 'list-group-item d-flex align-items-center p-3 border-bottom';
+                                li.dataset.id = item.id;
+                                
+                                const sideLabel = item.transaction_type === 'B' ? 'BUY' : 'SELL';
+                                
+                                li.innerHTML = `
+                                    <div class="me-3 cursor-move text-muted">
+                                        <i class="bi bi-grip-vertical fs-4"></i>
+                                    </div>
+                                    <div class="flex-grow-1">
+                                        <div class="d-flex justify-content-between align-items-center mb-1">
+                                            <span class="fw-bold">${item.trading_symbol}</span>
+                                            <span class="badge ${item.transaction_type === 'B' ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger'} small">${sideLabel}</span>
+                                        </div>
+                                        <div class="small text-muted d-flex gap-3">
+                                            <span><i class="bi bi-layers me-1"></i>${item.quantity} Qty</span>
+                                            <span><i class="bi bi-tag me-1"></i>${item.order_type === 'MKT' ? 'Market' : '₹'+item.price}</span>
+                                            <span><i class="bi bi-box me-1"></i>${item.product_type}</span>
+                                        </div>
+                                    </div>
+                                    <div class="ms-3">
+                                        <button class="btn btn-sm btn-outline-danger remove-item-btn" data-id="${item.id}">
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    </div>
+                                `;
+                                list.appendChild(li);
+                            });
+
+                            // Initialize Sortable
+                            new Sortable(list, {
+                                animation: 150,
+                                handle: '.cursor-move',
+                                onEnd: function() {
+                                    const newSequence = [];
+                                    list.querySelectorAll('li[data-id]').forEach((el, index) => {
+                                        newSequence.push({ id: parseInt(el.dataset.id), sort_order: index + 1 });
+                                    });
+                                    updateBasketSequence(newSequence);
+                                }
+                            });
+
+                            // Remove handlers
+                            list.querySelectorAll('.remove-item-btn').forEach(btn => {
+                                btn.onclick = function(e) {
+                                    e.preventDefault();
+                                    removeBasketItem(this.dataset.id);
+                                };
+                            });
+                        }
+                    });
+            }
+
+            function updateBasketSequence(sequence) {
+                fetch('/basket/update_sequence/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({ sequence })
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status !== 'success') showNotification('Failed to update order', 'warning');
+                    refreshBasketBadge();
+                });
+            }
+
+            function removeBasketItem(id) {
+                fetch('/basket/remove/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({ order_id: id })
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        loadBasketItems();
+                        refreshBasketBadge();
+                    }
+                });
+            }
+
+            // Execute Basket handler
+            document.getElementById('execute-basket-btn').onclick = function() {
+                if (basketItems.length === 0) return;
+                
+                const progressModal = new bootstrap.Modal(document.getElementById('basketProgressModal'));
+                const progressBar = document.getElementById('basket-progress-bar');
+                const logArea = document.getElementById('basket-execution-details');
+                const finishBtn = document.getElementById('basket-finish-btn');
+                const statusText = document.getElementById('basket-progress-status');
+                
+                progressBar.style.width = '0%';
+                logArea.innerHTML = '';
+                logArea.style.display = 'block';
+                finishBtn.style.display = 'none';
+                statusText.textContent = 'Contacting Trading Terminal...';
+                
+                bootstrap.Modal.getInstance(document.getElementById('basketModal')).hide();
+                progressModal.show();
+                
+                fetch('/basket/execute/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(response => response.json())
+                .then(result => {
+                    const total = basketItems.length;
+                    const executed = result.results || [];
+                    
+                    executed.forEach((res, idx) => {
+                        const div = document.createElement('div');
+                        div.className = res.status === 'success' ? 'text-success mb-1' : 'text-danger mb-1';
+                        const icon = res.status === 'success' ? 'check-circle' : 'exclamation-circle';
+                        div.innerHTML = `<i class="bi bi-${icon} me-1"></i> Leg ${idx+1}: ${res.status === 'success' ? 'SUCCESS (' + res.order_id + ')' : 'FAILED: ' + res.message}`;
+                        logArea.appendChild(div);
+                    });
+
+                    if (result.status === 'success') {
+                        progressBar.style.width = '100%';
+                        progressBar.className = 'progress-bar bg-success';
+                        document.getElementById('basket-progress-title').textContent = 'Basket Executed!';
+                        statusText.textContent = result.message;
+                    } else {
+                        progressBar.style.width = ((executed.length / total) * 100) + '%';
+                        progressBar.className = 'progress-bar bg-danger';
+                        document.getElementById('basket-progress-title').textContent = 'Execution Stopped';
+                        statusText.textContent = result.message;
+                    }
+                    
+                    finishBtn.style.display = 'block';
+                    refreshBasketBadge();
+                })
+                .catch(err => {
+                    showNotification('Critical error during execution', 'danger');
+                    progressModal.hide();
+                });
+            };
+
+            // --- End Basket System ---
 
             // Start session expiry checking
             checkSessionExpiry();

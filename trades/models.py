@@ -234,3 +234,32 @@ class UserSecurity(models.Model):
 
     def __str__(self):
         return f"{self.user.username} Security"
+
+
+class BasketOrder(models.Model):
+    """Store orders in a basket for sequential execution"""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='basket_orders')
+    
+    # Scrip identifiers
+    instrument_token = models.CharField(max_length=100)
+    exchange_segment = models.CharField(max_length=50)
+    trading_symbol = models.CharField(max_length=255)
+    
+    # Order parameters
+    quantity = models.IntegerField()
+    price = models.FloatField() # Note: 0 for MKT orders
+    transaction_type = models.CharField(max_length=5) # 'B' for Buy, 'S' for Sell
+    product_type = models.CharField(max_length=50) # MIS, CNC, NRML
+    order_type = models.CharField(max_length=5, default='L') # 'L' (Limit), 'MKT' (Market)
+    
+    # Ordering metadata
+    sort_order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['sort_order', 'created_at']
+        verbose_name = "Basket Order"
+        verbose_name_plural = "Basket Orders"
+
+    def __str__(self):
+        return f"{self.user.username} - {self.transaction_type} {self.quantity} {self.trading_symbol}"
