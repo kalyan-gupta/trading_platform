@@ -278,19 +278,41 @@ def reauthenticate_view(request):
     try:
         user_creds = UserNeoCredentials.objects.get(user=request.user, is_active=True)
     except UserNeoCredentials.DoesNotExist:
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+            return JsonResponse({'status': 'error', 'message': "Please configure your Neo API credentials first."}, status=400)
         messages.warning(request, "Please configure your Neo API credentials first.")
         return redirect('setup_credentials')
 
     if request.method == 'POST':
-        form = TOTPForm(request.POST)
-        if form.is_valid():
-            totp = form.cleaned_data['totp']
+        totp = None
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+            try:
+                data = json.loads(request.body)
+                totp = data.get('totp')
+            except json.JSONDecodeError:
+                return JsonResponse({'status': 'error', 'message': 'Invalid JSON data'}, status=400)
+        else:
+            form = TOTPForm(request.POST)
+            if form.is_valid():
+                totp = form.cleaned_data['totp']
+
+        if totp:
             api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
             auth_result = api.authenticate(totp=totp, force_refresh=True)
             if auth_result.get('status') == 'success':
+                if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+                    return JsonResponse({'status': 'success', 'message': "Neo SDK session authenticated successfully."})
                 messages.success(request, "Neo SDK session authenticated successfully.")
                 return redirect('index')
-            messages.error(request, auth_result.get('error', 'Authentication failed.'))
+            
+            error_msg = auth_result.get('error', 'Authentication failed.')
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+                return JsonResponse({'status': 'error', 'message': error_msg}, status=400)
+            messages.error(request, error_msg)
+        else:
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest' or request.content_type == 'application/json':
+                return JsonResponse({'status': 'error', 'message': 'TOTP is required.'}, status=400)
+            form = TOTPForm(request.POST)
     else:
         form = TOTPForm()
 
