@@ -754,11 +754,21 @@ def refresh_scrip_cache(request):
             _duckdb_connection.execute(
                 f"CREATE TABLE all_market_data AS SELECT * FROM read_csv([{file_list_sql}], union_by_name=True)"
             )
-            row_count = _duckdb_connection.execute('SELECT COUNT(*) FROM all_market_data').fetchone()[0]
+            
+            _duckdb_connection.execute(r"""
+                CREATE OR REPLACE VIEW active_market_data AS 
+                SELECT *,
+                       try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') as expire_date
+                FROM all_market_data
+                WHERE try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') IS NULL 
+                   OR try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') >= current_date()
+            """)
+            
+            row_count = _duckdb_connection.execute('SELECT COUNT(*) FROM active_market_data').fetchone()[0]
 
         return JsonResponse({
             'status': 'success',
-            'message': f'Refreshed all_market_data with {row_count} rows from {len(csv_files)} file(s).',
+            'message': f'Refreshed active_market_data with {row_count} active scrips from {len(csv_files)} file(s).',
             'loaded_files': [os.path.basename(path) for path in csv_files],
             'row_count': row_count,
         })
@@ -781,7 +791,7 @@ def search_scrip_cache(request):
 
         with _duckdb_lock:
             try:
-                row_count = _duckdb_connection.execute('SELECT COUNT(*) FROM all_market_data').fetchone()[0]
+                row_count = _duckdb_connection.execute('SELECT COUNT(*) FROM active_market_data').fetchone()[0]
                 if row_count == 0:
                     return JsonResponse({
                         'error': 'Scrip cache is empty. Please refresh the scrip cache and try again.',
@@ -850,7 +860,7 @@ def search_scrip_cache(request):
                     COALESCE(pGroup, '') as pGroup,
                     CAST(COALESCE(dTickSize, dTickSize, 0) AS DECIMAL) / 100 as dTickSize,
                     CAST(COALESCE(lLotSize, 0) AS INTEGER) as lLotSize
-                FROM all_market_data
+                FROM active_market_data
                 WHERE {where_clause} AND {final_search}
                 LIMIT 50
             """
