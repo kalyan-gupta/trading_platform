@@ -1109,8 +1109,10 @@
 
             let currentDepthSymbol = null;
             let currentDepthExch = null;
+            let currentDepthIsIndex = false;
             let currentOrderSymbol = null;
             let currentOrderExch = null;
+            let currentOrderIsIndex = false;
             let lastActiveOrderLtp = 0;
 
             // Helper to render depth tables
@@ -1472,6 +1474,7 @@
                                     document.getElementById('modal-data').dataset.dTickSize = result.dTickSize || 0.05;
                                     document.getElementById('modal-data').dataset.pDesc = result.pDesc || '';
                                     document.getElementById('modal-data').dataset.displayName = displayName;
+                                    document.getElementById('modal-data').dataset.isIndex = ((result.pExchSeg === 'nse_cm' || result.pExchSeg === 'bse_cm') && (!result.pGroup || result.pGroup.trim() === '')) ? 'true' : 'false';
                                     
                                     const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
                                     modal.show();
@@ -1507,6 +1510,7 @@
                 const scripName = document.getElementById('modal-data').dataset.displayName;
                 const pSymbol = document.getElementById('modal-data').dataset.pSymbol;
                 const pExchSeg = document.getElementById('modal-data').dataset.pExchSeg;
+                const isIndex = document.getElementById('modal-data').dataset.isIndex === 'true';
                 
                 if (!pSymbol || !pExchSeg) {
                     showNotification('Unable to get depth: missing symbol information', 'danger');
@@ -1539,13 +1543,15 @@
                         // Set current global tracking variables and open WebSockets!
                         currentDepthSymbol = pSymbol;
                         currentDepthExch = pExchSeg;
+                        currentDepthIsIndex = isIndex;
                         
                         if (tradeSocket.readyState === WebSocket.OPEN) {
                             tradeSocket.send(JSON.stringify({
                                 'action': 'subscribe',
                                 'params': { 
                                     'instrument_tokens': [{ "instrument_token": pSymbol, "exchange_segment": pExchSeg }],
-                                    'isDepth': true 
+                                    'isDepth': true,
+                                    'isIndex': isIndex
                                 }
                             }));
                         }
@@ -1589,12 +1595,14 @@
                         'action': 'unsubscribe',
                         'params': { 
                             'instrument_tokens': [{ "instrument_token": currentDepthSymbol, "exchange_segment": currentDepthExch }],
-                            'isDepth': true 
+                            'isDepth': true,
+                            'isIndex': currentDepthIsIndex
                         }
                     }));
                 }
                 currentDepthSymbol = null;
                 currentDepthExch = null;
+                currentDepthIsIndex = false;
             });
 
             document.getElementById('modal-place-order-btn').addEventListener('click', function() {
@@ -1602,6 +1610,7 @@
                 const pSymbol = document.getElementById('modal-data').dataset.pSymbol;
                 const pTrdSymbol = document.getElementById('modal-data').dataset.pTrdSymbol;
                 const pExchSeg = document.getElementById('modal-data').dataset.pExchSeg;
+                const isIndex = document.getElementById('modal-data').dataset.isIndex === 'true';
                 const pOptionType = document.getElementById('modal-data').dataset.pOptionType || '-';
                 const lLotSize = parseInt(document.getElementById('modal-data').dataset.lLotSize) || 1;
                 const dTickSize = parseFloat(document.getElementById('modal-data').dataset.dTickSize) || 0.05;
@@ -1852,12 +1861,14 @@
                         // Start live updates for this symbol
                         currentOrderSymbol = pSymbol;
                         currentOrderExch = pExchSeg;
+                        currentOrderIsIndex = isIndex;
                         if (tradeSocket.readyState === WebSocket.OPEN) {
                             tradeSocket.send(JSON.stringify({
                                 'action': 'subscribe',
                                 'params': { 
                                     'instrument_tokens': [{ "instrument_token": pSymbol, "exchange_segment": pExchSeg }],
-                                    'isDepth': false 
+                                    'isDepth': false,
+                                    'isIndex': isIndex
                                 }
                             }));
                         }
@@ -1917,7 +1928,8 @@
                             'action': 'subscribe',
                             'params': { 
                                 'instrument_tokens': [{ "instrument_token": currentOrderSymbol, "exchange_segment": currentOrderExch }],
-                                'isDepth': true 
+                                'isDepth': true,
+                                'isIndex': currentOrderIsIndex
                             }
                         }));
                     }
@@ -1930,7 +1942,8 @@
                             'action': 'subscribe',
                             'params': { 
                                 'instrument_tokens': [{ "instrument_token": currentOrderSymbol, "exchange_segment": currentOrderExch }],
-                                'isDepth': false 
+                                'isDepth': false,
+                                'isIndex': currentOrderIsIndex
                             }
                         }));
                     }
@@ -2022,12 +2035,14 @@
                         'action': 'unsubscribe',
                         'params': { 
                             'instrument_tokens': [{ "instrument_token": currentOrderSymbol, "exchange_segment": currentOrderExch }],
-                            'isDepth': false 
+                            'isDepth': false,
+                            'isIndex': currentOrderIsIndex
                         }
                     }));
                 }
                 currentOrderSymbol = null;
                 currentOrderExch = null;
+                currentOrderIsIndex = false;
             });
 
             // --- SDK Status Check & Modal ---
