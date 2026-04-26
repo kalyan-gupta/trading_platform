@@ -759,11 +759,18 @@ def refresh_scrip_cache(request):
             
             _duckdb_connection.execute(r"""
                 CREATE TABLE active_market_data AS 
-                SELECT *,
-                       try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') as expire_date
-                FROM temp_market_data
-                WHERE try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') IS NULL 
-                   OR try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') >= current_date()
+                WITH option_underlyings AS (
+                    SELECT DISTINCT pAssetCode 
+                    FROM temp_market_data 
+                    WHERE pInstType IN ('OPTIDX', 'OPTSTK', 'IO', 'SO')
+                )
+                SELECT t.*,
+                       try_strptime(regexp_extract(COALESCE(t.pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') as expire_date,
+                       (ou.pAssetCode IS NOT NULL) as has_option_chain
+                FROM temp_market_data t
+                LEFT JOIN option_underlyings ou ON CAST(t.pSymbol AS VARCHAR) = CAST(ou.pAssetCode AS VARCHAR)
+                WHERE try_strptime(regexp_extract(COALESCE(t.pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') IS NULL 
+                   OR try_strptime(regexp_extract(COALESCE(t.pScripRefKey, ''), '(\d{2}[A-Z]{3}\d{2})', 1), '%d%b%y') >= current_date()
             """)
             
             _duckdb_connection.execute('DROP TABLE temp_market_data')
@@ -890,6 +897,8 @@ def search_scrip_cache(request):
                     pScripRefKey,
                     pDesc,
                     COALESCE(pGroup, '') as pGroup,
+                    COALESCE(CAST(pAssetCode AS VARCHAR), '') as pAssetCode,
+                    has_option_chain,
                     CAST(COALESCE(dTickSize, dTickSize, 0) AS DECIMAL) / 100 as dTickSize,
                     CAST(COALESCE(lLotSize, 0) AS INTEGER) as lLotSize
                 FROM active_market_data
@@ -899,7 +908,7 @@ def search_scrip_cache(request):
             """
 
             results = _duckdb_connection.execute(query).fetchall()
-            columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc', 'pGroup', 'dTickSize', 'lLotSize']
+            columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc', 'pGroup', 'pAssetCode', 'has_option_chain', 'dTickSize', 'lLotSize']
             
             data = [dict(zip(columns, row)) for row in results]
             
@@ -912,6 +921,74 @@ def search_scrip_cache(request):
             })
 
     except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required_with_session_check
+def get_option_chain_ajax(request):
+    p_symbol = request.GET.get('p_symbol')
+    if not p_symbol:
+        return JsonResponse({'error': 'Missing p_symbol'}, status=400)
+
+    try:
+        query = f"""
+            SELECT 
+                pSymbol, pExchSeg, pSymbolName, pTrdSymbol, pOptionType, pInstType,
+                CAST(COALESCE("dStrikePrice;", 0) AS DECIMAL) / 100 as dStrikePrice,
+                pScripRefKey, pDesc,
+                CAST(COALESCE(dTickSize, 0) AS DECIMAL) / 100 as dTickSize,
+                CAST(COALESCE(lLotSize, 0) AS INTEGER) as lLotSize,
+                strftime(expire_date, '%Y-%m-%d') as expire_date_str
+            FROM active_market_data
+            WHERE CAST(pAssetCode AS VARCHAR) = '{p_symbol}' 
+              AND pInstType IN ('OPTIDX', 'OPTSTK', 'IO', 'SO')
+            ORDER BY expire_date, dStrikePrice
+        """
+        
+        with _duckdb_lock:
+            results = _duckdb_connection.execute(query).fetchall()
+        
+        columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc', 'dTickSize', 'lLotSize', 'expire_date_str']
+        raw_data = [dict(zip(columns, row)) for row in results]
+        
+        # Group by expiry and strike
+        chain_data = {}
+        expiries = []
+        
+        for row in raw_data:
+            exp = row['expire_date_str']
+            strike = row['dStrikePrice']
+            opt_type = row['pOptionType']
+            
+            if exp not in chain_data:
+                chain_data[exp] = {}
+                expiries.append(exp)
+            
+            if strike not in chain_data[exp]:
+                chain_data[exp][strike] = {'CE': None, 'PE': None}
+            
+            if opt_type == 'CE':
+                chain_data[exp][strike]['CE'] = row
+            elif opt_type == 'PE':
+                chain_data[exp][strike]['PE'] = row
+        
+        # Convert strikes to sorted list for each expiry
+        final_chain = {}
+        for exp in expiries:
+            sorted_strikes = []
+            for strike in sorted(chain_data[exp].keys()):
+                strike_row = chain_data[exp][strike]
+                strike_row['strike'] = float(strike)
+                sorted_strikes.append(strike_row)
+            final_chain[exp] = sorted_strikes
+
+        return JsonResponse({
+            'status': 'success',
+            'expiries': expiries,
+            'chain': final_chain
+        })
+    except Exception as e:
+        logger.error(f"Error fetching option chain: {e}")
         return JsonResponse({'error': str(e)}, status=500)
 
 

@@ -299,6 +299,40 @@
         .modern-results-table tbody tr:last-child td {
             border-bottom: none;
         }
+        /* Option Chain Table Styles */
+        .oc-table th { font-size: 0.8rem; letter-spacing: 0.05rem; }
+        .oc-strike-cell { background: #f8f9fa; font-weight: 700; color: #1a73e8; }
+        .oc-ltp-cell { font-family: 'Roboto Mono', monospace; font-weight: 600; width: 100px; }
+        .oc-action-btn { 
+            padding: 0.25rem 0.5rem; 
+            font-size: 0.85rem; 
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .oc-action-btn:hover { background: #e8f0fe; border-color: #1a73e8; color: #1a73e8; }
+        .oc-expiry-pill {
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            border-radius: 2rem;
+            border: 1px solid #dee2e6;
+            margin: 0 0.25rem;
+            white-space: nowrap;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        .oc-expiry-pill.active {
+            background: #1a73e8;
+            color: white;
+            border-color: #1a73e8;
+            box-shadow: 0 4px 10px rgba(26, 115, 232, 0.3);
+        }
+        .oc-expiry-pill:hover:not(.active) { background: #f1f3f4; }
+        .oc-row:hover { background-color: rgba(26, 115, 232, 0.02); }
+        .oc-action-icons { display: flex; gap: 0.5rem; justify-content: center; }
+        .oc-btn-basket { color: #fd7e14; }
+        .oc-btn-basket:hover { background: #fff4e6; color: #d9480f; }
+        .oc-btn-trade { color: #1a73e8; }
+        .oc-btn-trade:hover { background: #e8f0fe; color: #1557b0; }
     </style>
 </head>
 <body>
@@ -614,6 +648,60 @@
         </div>
     </div>
 
+    <!-- Option Chain Modal -->
+    <div class="modal fade" id="optionChainModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-dark text-white py-3">
+                    <div class="d-flex align-items-center">
+                        <div class="bg-primary rounded-circle p-2 me-3 d-flex align-items-center justify-content-center" style="width: 40px; height: 40px;">
+                            <i class="bi bi-layers-half text-white"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title mb-0 fw-bold" id="oc-symbol-name">Option Chain</h5>
+                            <span class="text-white-50 small" id="oc-underlying-desc"></span>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <!-- Expiry selector -->
+                    <div class="bg-light border-bottom py-3 px-4">
+                        <div id="oc-expiry-list" class="d-flex overflow-x-auto pb-1" style="scrollbar-width: thin;">
+                            <!-- Expiry pills populated by JS -->
+                        </div>
+                    </div>
+                    
+                    <div class="table-responsive">
+                        <table class="table table-hover border-top-0 mb-0 oc-table text-center">
+                            <thead class="sticky-top bg-white shadow-sm" style="z-index: 10;">
+                                <tr>
+                                    <th colspan="2" class="bg-success-subtle text-success-emphasis border-bottom-0 py-3">CALLS</th>
+                                    <th class="bg-light border-bottom-0 py-3">STRIKE</th>
+                                    <th colspan="2" class="bg-danger-subtle text-danger-emphasis border-bottom-0 py-3">PUTS</th>
+                                </tr>
+                                <tr class="bg-white border-bottom small text-muted">
+                                    <th style="width: 25%;">LTP</th>
+                                    <th style="width: 15%;">ACTIONS</th>
+                                    <th style="width: 20%;">PRICE</th>
+                                    <th style="width: 15%;">ACTIONS</th>
+                                    <th style="width: 25%;">LTP</th>
+                                </tr>
+                            </thead>
+                            <tbody id="oc-body">
+                                <!-- Populated by JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <span class="text-muted small me-auto"><i class="bi bi-info-circle me-1"></i> LTPs update in real-time. Basket orders are added as Carry Forward.</span>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Scrip Action Modal -->
         <div class="modal fade" id="scripActionModal" tabindex="-1" aria-hidden="true">
             <div class="modal-dialog modal-dialog-centered">
@@ -629,6 +717,9 @@
                         <div id="modal-data" style="display: none;"></div>
                     </div>
                     <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-info" id="modal-option-chain-btn" style="display: none;">
+                            <i class="bi bi-layers-half me-1"></i> Option Chain
+                        </button>
                         <button type="button" class="btn btn-outline-primary" id="modal-show-depth-btn">
                             <i class="bi bi-graph-up me-1"></i> Show Depth
                         </button>
@@ -1113,6 +1204,7 @@
             let currentOrderSymbol = null;
             let currentOrderExch = null;
             let currentOrderIsIndex = false;
+            let currentOCTokens = new Set(); // Tokens visible in current OC view
             let lastActiveOrderLtp = 0;
 
             // Helper to render depth tables
@@ -1156,6 +1248,14 @@
                         if (!quote) return;
                         
                         const instrumentSymbol = quote.instrument_token;
+                        
+                        // Update Option Chain if open
+                        if (currentOCTokens.has(instrumentSymbol)) {
+                            const ocLtpEl = document.getElementById(`oc-ltp-${instrumentSymbol}`);
+                            if (ocLtpEl && quote.ltp) {
+                                ocLtpEl.textContent = `₹${parseFloat(quote.ltp).toFixed(2)}`;
+                            }
+                        }
 
                         // 1. Update Holdings LTP/PNL
                         const ltpCell = document.getElementById(`ltp-${instrumentSymbol}`);
@@ -1475,6 +1575,16 @@
                                     document.getElementById('modal-data').dataset.pDesc = result.pDesc || '';
                                     document.getElementById('modal-data').dataset.displayName = displayName;
                                     document.getElementById('modal-data').dataset.isIndex = ((result.pExchSeg === 'nse_cm' || result.pExchSeg === 'bse_cm') && (!result.pGroup || result.pGroup.trim() === '')) ? 'true' : 'false';
+                                    document.getElementById('modal-data').dataset.pAssetCode = result.pAssetCode || '';
+                                    document.getElementById('modal-data').dataset.hasOptionChain = result.has_option_chain || false;
+                                    
+                                    // Show/Hide Option Chain button
+                                    const ocBtn = document.getElementById('modal-option-chain-btn');
+                                    if (result.has_option_chain) {
+                                        ocBtn.style.display = 'inline-block';
+                                    } else {
+                                        ocBtn.style.display = 'none';
+                                    }
                                     
                                     const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
                                     modal.show();
@@ -1605,7 +1715,8 @@
                 currentDepthIsIndex = false;
             });
 
-            document.getElementById('modal-place-order-btn').addEventListener('click', function() {
+            // Refactor order placement logic into a function
+            function handlePlaceOrderTrigger() {
                 const scripName = document.getElementById('modal-data').dataset.displayName;
                 const pSymbol = document.getElementById('modal-data').dataset.pSymbol;
                 const pTrdSymbol = document.getElementById('modal-data').dataset.pTrdSymbol;
@@ -2026,7 +2137,9 @@
                         orderMarginResult.textContent = 'An error occurred while checking margin requirements.';
                     });
                 });
-            });
+            }
+
+            document.getElementById('modal-place-order-btn').addEventListener('click', handlePlaceOrderTrigger);
 
             // Handle clearing order stream when modal closes
             document.getElementById('placeOrderModal').addEventListener('hidden.bs.modal', function () {
@@ -2057,6 +2170,192 @@
                     })
                     .catch(err => console.error('Error checking SDK status:', err));
             }
+
+            // Option Chain Logic
+            const ocModalEl = document.getElementById('optionChainModal');
+            let ocData = null;
+            let currentOCExpiry = null;
+
+            document.getElementById('modal-option-chain-btn').addEventListener('click', function() {
+                const symbol = document.getElementById('modal-data').dataset.pSymbol;
+                const name = document.getElementById('modal-data').dataset.displayName;
+                const desc = document.getElementById('modal-data').dataset.pDesc;
+                
+                document.getElementById('oc-symbol-name').textContent = name;
+                document.getElementById('oc-underlying-desc').textContent = desc;
+                
+                const actionModal = bootstrap.Modal.getInstance(document.getElementById('scripActionModal'));
+                if (actionModal) actionModal.hide();
+                
+                const ocModal = new bootstrap.Modal(ocModalEl);
+                ocModal.show();
+                
+                // Fetch chain data
+                document.getElementById('oc-expiry-list').innerHTML = '<div class="spinner-border spinner-border-sm text-primary mx-auto my-2"></div>';
+                document.getElementById('oc-body').innerHTML = '<tr><td colspan="5" class="p-5 text-muted">Fetching option chain...</td></tr>';
+                
+                fetch(`/get_option_chain_ajax/?p_symbol=${encodeURIComponent(symbol)}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            ocData = data;
+                            renderExpirySelector();
+                            if (data.expiries && data.expiries.length > 0) {
+                                renderChain(data.expiries[0]);
+                            }
+                        } else {
+                            showNotification('Error: ' + data.error, 'danger');
+                        }
+                    })
+                    .catch(err => {
+                        console.error('OC Fetch Error:', err);
+                        showNotification('Failed to load option chain.', 'danger');
+                    });
+            });
+
+            function renderExpirySelector() {
+                const list = document.getElementById('oc-expiry-list');
+                list.innerHTML = '';
+                ocData.expiries.forEach((exp, idx) => {
+                    const pill = document.createElement('div');
+                    pill.className = `oc-expiry-pill ${idx === 0 ? 'active' : ''}`;
+                    pill.textContent = exp;
+                    pill.onclick = () => {
+                        document.querySelectorAll('.oc-expiry-pill').forEach(p => p.classList.remove('active'));
+                        pill.classList.add('active');
+                        renderChain(exp);
+                    };
+                    list.appendChild(pill);
+                });
+            }
+
+            function renderChain(expiry) {
+                currentOCExpiry = expiry;
+                const body = document.getElementById('oc-body');
+                body.innerHTML = '';
+                
+                unsubscribeOCTokens(); // Clear old subs
+                currentOCTokens.clear();
+                
+                const rows = ocData.chain[expiry];
+                rows.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.className = 'oc-row';
+                    
+                    const ce = row.CE;
+                    const pe = row.PE;
+                    
+                    if (ce) currentOCTokens.add(ce.pSymbol);
+                    if (pe) currentOCTokens.add(pe.pSymbol);
+
+                    tr.innerHTML = `
+                        <td class="oc-ltp-cell ${ce ? 'text-success' : 'text-muted'}" id="oc-ltp-${ce ? ce.pSymbol : 'none'}">${ce ? 'Loading...' : '-'}</td>
+                        <td class="align-middle">
+                            ${ce ? `
+                            <div class="oc-action-icons">
+                                <button class="btn btn-link oc-action-btn oc-btn-trade p-0" title="Trade" onclick="openTradeFromOC('${ce.pSymbol}', '${ce.pExchSeg}', '${ce.pTrdSymbol}', \`${ce.pSymbolName}\`, ${ce.lLotSize}, ${ce.dTickSize})"><i class="bi bi-plus-circle"></i></button>
+                                <button class="btn btn-link oc-action-btn oc-btn-basket p-0" title="Add to Basket" onclick="addToBasketFromOC('${ce.pSymbol}', '${ce.pExchSeg}', '${ce.pTrdSymbol}', ${ce.lLotSize})"><i class="bi bi-cart-plus"></i></button>
+                            </div>` : ''}
+                        </td>
+                        <td class="oc-strike-cell">₹${row.strike}</td>
+                        <td class="align-middle">
+                            ${pe ? `
+                            <div class="oc-action-icons">
+                                <button class="btn btn-link oc-action-btn oc-btn-basket p-0" title="Add to Basket" onclick="addToBasketFromOC('${pe.pSymbol}', '${pe.pExchSeg}', '${pe.pTrdSymbol}', ${pe.lLotSize})"><i class="bi bi-cart-plus"></i></button>
+                                <button class="btn btn-link oc-action-btn oc-btn-trade p-0" title="Trade" onclick="openTradeFromOC('${pe.pSymbol}', '${pe.pExchSeg}', '${pe.pTrdSymbol}', \`${pe.pSymbolName}\`, ${pe.lLotSize}, ${pe.dTickSize})"><i class="bi bi-plus-circle"></i></button>
+                            </div>` : ''}
+                        </td>
+                        <td class="oc-ltp-cell ${pe ? 'text-danger' : 'text-muted'}" id="oc-ltp-${pe ? pe.pSymbol : 'none'}">${pe ? 'Loading...' : '-'}</td>
+                    `;
+                    body.appendChild(tr);
+                });
+                
+                subscribeOCTokens();
+            }
+
+            window.openTradeFromOC = function(pSymbol, pExchSeg, pTrdSymbol, displayName, lLotSize, dTickSize) {
+                // Update modal-data with the option's data
+                const modalData = document.getElementById('modal-data').dataset;
+                modalData.pSymbol = pSymbol;
+                modalData.pExchSeg = pExchSeg;
+                modalData.pTrdSymbol = pTrdSymbol;
+                modalData.displayName = displayName;
+                modalData.lLotSize = lLotSize;
+                modalData.dTickSize = dTickSize;
+                modalData.isIndex = 'false'; // Options are not indexes themselves
+                
+                handlePlaceOrderTrigger();
+            };
+
+            window.addToBasketFromOC = function(token, exch, symbol, lot) {
+                fetch('/basket/add/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        instrument_token: token,
+                        exchange_segment: exch,
+                        trading_symbol: symbol,
+                        quantity: lot,
+                        price: 0,
+                        transaction_type: 'B',
+                        product_type: 'NRML',
+                        order_type: 'MKT'
+                    })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(`Added ${symbol} to basket.`, 'success');
+                    } else {
+                        showNotification('Error: ' + data.error, 'danger');
+                    }
+                });
+            };
+
+            function subscribeOCTokens() {
+                if (currentOCTokens.size > 0 && tradeSocket.readyState === WebSocket.OPEN) {
+                    const tokens = Array.from(currentOCTokens).map(tk => {
+                        // Find exch from ocData
+                        let exch = 'nse_fo';
+                        for (let row of ocData.chain[currentOCExpiry]) {
+                            if (row.CE && row.CE.pSymbol === tk) { exch = row.CE.pExchSeg; break; }
+                            if (row.PE && row.PE.pSymbol === tk) { exch = row.PE.pExchSeg; break; }
+                        }
+                        return { instrument_token: tk, exchange_segment: exch };
+                    });
+                    
+                    tradeSocket.send(JSON.stringify({
+                        'action': 'subscribe',
+                        'params': { 'instrument_tokens': tokens, 'isDepth': false }
+                    }));
+                }
+            }
+
+            function unsubscribeOCTokens() {
+                if (currentOCTokens.size > 0 && tradeSocket.readyState === WebSocket.OPEN) {
+                    const tokens = Array.from(currentOCTokens).map(tk => {
+                        let exch = 'nse_fo';
+                        for (let row of ocData.chain[currentOCExpiry]) {
+                            if (row.CE && row.CE.pSymbol === tk) { exch = row.CE.pExchSeg; break; }
+                            if (row.PE && row.PE.pSymbol === tk) { exch = row.PE.pExchSeg; break; }
+                        }
+                        return { instrument_token: tk, exchange_segment: exch };
+                    });
+                    
+                    tradeSocket.send(JSON.stringify({
+                        'action': 'unsubscribe',
+                        'params': { 'instrument_tokens': tokens, 'isDepth': false }
+                    }));
+                }
+            }
+
+            ocModalEl.addEventListener('hidden.bs.modal', function() {
+                unsubscribeOCTokens();
+                currentOCTokens.clear();
+            });
 
             // Trigger inline re-authentication modal
             document.getElementById('trigger-reauth-modal-btn').onclick = function() {

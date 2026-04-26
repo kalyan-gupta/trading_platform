@@ -38,6 +38,7 @@ urlpatterns = [
     path('refresh_scrip_cache/', views.refresh_scrip_cache, name='refresh_scrip_cache'),
     path('get_depth/', views.get_depth, name='get_depth'),
     path('get_ltp/', views.get_ltp, name='get_ltp'),
+    path('get_option_chain_ajax/', views.get_option_chain_ajax, name='get_option_chain_ajax'),
     path('reauthenticate/', views.reauthenticate_view, name='reauthenticate'),
     path('logout_sdk/', views.logout_sdk_session, name='logout_sdk'),
     path('check_sdk_status/', views.check_sdk_status, name='check_sdk_status'),
