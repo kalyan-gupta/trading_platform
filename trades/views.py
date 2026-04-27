@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.http import JsonResponse
 from django.conf import settings
 from .kotak_neo_api import KotakNeoAPI
-from .models import UserNeoCredentials, SessionActivity, SMTPSettings, UserSecurity
+from .models import UserNeoCredentials, SessionActivity, SMTPSettings, UserSecurity, PlatformSettings
 from .forms import LoginForm, RegistrationForm, UserNeoCredentialsForm, UserProfileForm, TOTPForm, ForgotPasswordForm, SetNewPasswordForm, ChangePasswordForm, OTPVerifyForm
 from .decorators import login_required_with_session_check, ajax_login_required
 import json
@@ -415,8 +415,10 @@ def admin_settings_view(request):
         return redirect('index')
     
     settings_obj = SMTPSettings.get_settings()
+    platform_settings = PlatformSettings.get_settings()
     
     if request.method == 'POST':
+        # Handle SMTP Settings
         settings_obj.host = request.POST.get('host', 'smtp.gmail.com')
         try:
             settings_obj.port = int(request.POST.get('port', 587))
@@ -430,11 +432,20 @@ def admin_settings_view(request):
         
         new_password = request.POST.get('host_password', '')
         if new_password:
-            # Replaced plain text password, saving it will encrypt it
             settings_obj.host_password = new_password
-            
         settings_obj.save()
-        messages.success(request, "SMTP settings updated successfully!")
+
+        # Handle Platform Settings
+        platform_settings.session_timeout_enabled = request.POST.get('session_timeout_enabled') == 'on'
+        platform_settings.sdk_timeout_enabled = request.POST.get('sdk_timeout_enabled') == 'on'
+        try:
+            platform_settings.session_timeout_seconds = int(request.POST.get('session_timeout_seconds', 300))
+            platform_settings.sdk_timeout_seconds = int(request.POST.get('sdk_timeout_seconds', 1800))
+        except ValueError:
+            pass # Keep previous values if invalid
+        platform_settings.save()
+
+        messages.success(request, "All settings updated successfully!")
         return redirect('admin_settings')
 
     users = User.objects.all().order_by('-is_superuser', 'username')
@@ -442,6 +453,7 @@ def admin_settings_view(request):
 
     return render(request, 'trades/admin_settings.html', {
         'settings': settings_obj,
+        'platform_settings': platform_settings,
         'users': users,
         'registration_form': registration_form
     })
@@ -1387,6 +1399,7 @@ def index(request):
         'debug_limits': debug_limits,
         'sdk_active': sdk_active,
         'is_connected': True if account_info and 'error' not in account_info else False,
+        'platform_settings': PlatformSettings.get_settings(),
     }
 
     return render(request, 'trades/index.html', context)

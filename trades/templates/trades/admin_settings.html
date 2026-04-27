@@ -171,6 +171,43 @@
             </div>
         </div>
 
+        <div class="card mb-4 border-primary">
+            <div class="card-header bg-primary bg-opacity-10">
+                <h5 class="mb-0 text-primary"><i class="bi bi-clock-history me-2"></i>Session & Security Configuration</h5>
+            </div>
+            <div class="card-body p-4">
+                <p class="text-muted small mb-4">Control how long user and SDK sessions remain active before requiring interaction or re-authentication.</p>
+                
+                <div class="row g-4">
+                    <!-- User Session Section -->
+                    <div class="col-md-6 border-end">
+                        <div class="form-check form-switch fs-5 mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="session_timeout_enabled" name="session_timeout_enabled" {% if platform_settings.session_timeout_enabled %}checked{% endif %}>
+                            <label class="form-check-label fs-6 fw-bold" for="session_timeout_enabled">User Session Auto-Logoff</label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="session_timeout_seconds" class="form-label small">Inactivity Timeout (Seconds)</label>
+                            <input type="number" class="form-control form-control-sm" id="session_timeout_seconds" name="session_timeout_seconds" value="{{ platform_settings.session_timeout_seconds }}" min="60">
+                            <div class="form-text small">Default: 300 (5 min). Minimum: 60 (1 min).</div>
+                        </div>
+                    </div>
+
+                    <!-- SDK Session Section -->
+                    <div class="col-md-6">
+                        <div class="form-check form-switch fs-5 mb-3">
+                            <input class="form-check-input" type="checkbox" role="switch" id="sdk_timeout_enabled" name="sdk_timeout_enabled" {% if platform_settings.sdk_timeout_enabled %}checked{% endif %}>
+                            <label class="form-check-label fs-6 fw-bold" for="sdk_timeout_enabled">Mandatory SDK Re-Auth</label>
+                        </div>
+                        <div class="mb-3">
+                            <label for="sdk_timeout_seconds" class="form-label small">Re-Auth Interval (Seconds)</label>
+                            <input type="number" class="form-control form-control-sm" id="sdk_timeout_seconds" name="sdk_timeout_seconds" value="{{ platform_settings.sdk_timeout_seconds }}" min="300">
+                            <div class="form-text small">Default: 1800 (30 min). Minimum: 300 (5 min).</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="card">
             <div class="card-header">
                 <h5 class="mb-0"><i class="bi bi-envelope-at-fill me-2"></i>SMTP Credentials & Settings</h5>
@@ -278,7 +315,10 @@
                                             {% endif %}
                                         </form>
                                         
-                                        <button type="button" class="btn btn-sm btn-outline-info" title="Reset User Password" onclick="openResetPasswordModal({{ u.id }}, '{{ u.username }}')">
+                                        <button type="button" class="btn btn-sm btn-outline-info reset-pwd-btn" 
+                                                data-user-id="{{ u.id }}" 
+                                                data-username="{{ u.username }}" 
+                                                title="Reset User Password">
                                             <i class="bi bi-key-fill"></i>
                                         </button>
 
@@ -373,6 +413,12 @@
             var modal = new bootstrap.Modal(document.getElementById('resetPasswordModal'));
             modal.show();
         }
+
+        document.querySelectorAll('.reset-pwd-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                openResetPasswordModal(this.dataset.userId, this.dataset.username);
+            });
+        });
     </script>
 </body>
 </html>

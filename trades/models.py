@@ -146,9 +146,36 @@ class SessionActivity(models.Model):
     def __str__(self):
         return f"{self.user.username} - Last activity: {self.last_activity}"
     
-    def is_expired(self, timeout_seconds=300):
-        """Check if session has expired (default 5 minutes)"""
+    def is_expired(self, timeout_seconds=None):
+        """Check if session has expired. Uses PlatformSettings if timeout_seconds is not provided."""
+        if timeout_seconds is None:
+            settings = PlatformSettings.get_settings()
+            if not settings.session_timeout_enabled:
+                return False
+            timeout_seconds = settings.session_timeout_seconds
+            
         return (timezone.now() - self.last_activity).total_seconds() > timeout_seconds
+
+
+class PlatformSettings(models.Model):
+    """Global platform configuration editable by superusers"""
+    session_timeout_enabled = models.BooleanField(default=True, help_text="Enable automatic logoff after inactivity")
+    session_timeout_seconds = models.IntegerField(default=300, help_text="User session timeout in seconds (default 5 min)")
+    
+    sdk_timeout_enabled = models.BooleanField(default=True, help_text="Enable mandatory SDK re-authentication after duration")
+    sdk_timeout_seconds = models.IntegerField(default=1800, help_text="SDK session timeout in seconds (default 30 min)")
+
+    class Meta:
+        verbose_name = "Platform Settings"
+        verbose_name_plural = "Platform Settings"
+
+    def __str__(self):
+        return "Global Platform Configuration"
+
+    @classmethod
+    def get_settings(cls):
+        obj, created = cls.objects.get_or_create(id=1)
+        return obj
 
 
 class SMTPSettings(models.Model):

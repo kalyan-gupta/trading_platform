@@ -1273,7 +1273,24 @@
     </footer>
     
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+    <div id="platform-settings-data" 
+         data-session-enabled="{{ platform_settings.session_timeout_enabled|yesno:'true,false' }}"
+         data-session-seconds="{{ platform_settings.session_timeout_seconds }}"
+         data-sdk-enabled="{{ platform_settings.sdk_timeout_enabled|yesno:'true,false' }}"
+         data-sdk-seconds="{{ platform_settings.sdk_timeout_seconds }}"
+         style="display: none;">
+    </div>
+    
     <script>
+        // Use data attributes to avoid IDE parsing errors with template variables in JS
+        const settingsData = document.getElementById('platform-settings-data').dataset;
+        window.PLATFORM_SETTINGS = {
+            session_timeout_enabled: settingsData.sessionEnabled === 'true',
+            session_timeout_seconds: parseInt(settingsData.sessionSeconds),
+            sdk_timeout_enabled: settingsData.sdkEnabled === 'true',
+            sdk_timeout_seconds: parseInt(settingsData.sdkSeconds)
+        };
+
         document.addEventListener("DOMContentLoaded", function() {
             const tradeSocket = new WebSocket(`ws://${window.location.host}/ws/trades/`);
 
@@ -3234,9 +3251,14 @@
 
             // Function to check session expiry and show warning
             function checkSessionExpiry() {
-                // Session expires in 5 minutes (300 seconds)
-                const sessionExpiryTime = 300 * 1000; // 5 minutes in milliseconds
-                const warningTime = 60 * 1000; // Show warning 1 minute before expiry
+                if (!window.PLATFORM_SETTINGS.session_timeout_enabled) {
+                    clearTimeout(sessionExtensionTimer);
+                    return;
+                }
+
+                const sessionExpiryTime = window.PLATFORM_SETTINGS.session_timeout_seconds * 1000;
+                // Show warning 20% before expiry, or at least 1 minute if timeout is long enough
+                const warningTime = Math.min(60 * 1000, sessionExpiryTime * 0.2); 
 
                 // Reset timer on any user activity
                 clearTimeout(sessionExtensionTimer);
@@ -3245,7 +3267,7 @@
                         showSessionExtensionModal();
                         sessionWarningShown = true;
                     }
-                }, sessionExpiryTime - warningTime);
+                }, Math.max(0, sessionExpiryTime - warningTime));
             }
 
             // Show session extension modal

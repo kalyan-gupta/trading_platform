@@ -15,3 +15,14 @@ class SessionActivityAdmin(admin.ModelAdmin):
     list_display = ('user', 'session_key', 'ip_address', 'last_activity')
     search_fields = ('user__username', 'session_key', 'ip_address')
     readonly_fields = ('last_activity',)
+
+
+from .models import PlatformSettings, SMTPSettings
+
+@admin.register(PlatformSettings)
+class PlatformSettingsAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session_timeout_enabled', 'session_timeout_seconds', 'sdk_timeout_enabled', 'sdk_timeout_seconds')
+
+@admin.register(SMTPSettings)
+class SMTPSettingsAdmin(admin.ModelAdmin):
+    list_display = ('id', 'host', 'port', 'enable_password_reset', 'enable_registration_otp')

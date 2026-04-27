@@ -23,7 +23,8 @@ def login_required_with_session_check(view_func):
         # Check session activity/expiry
         try:
             session_activity = SessionActivity.objects.get(user=request.user)
-            if session_activity.is_expired(timeout_seconds=300):  # 5 minutes
+            if session_activity.is_expired(): 
+
                 # Session expired
                 from trades.kotak_neo_api import logout_sdk_session_for_user
                 logout_sdk_session_for_user(request.user)
@@ -80,7 +81,8 @@ def ajax_login_required(view_func):
         # Check session activity/expiry
         try:
             session_activity = SessionActivity.objects.get(user=request.user)
-            if session_activity.is_expired(timeout_seconds=300):  # 5 minutes
+            if session_activity.is_expired(): 
+
                 from trades.kotak_neo_api import logout_sdk_session_for_user
                 logout_sdk_session_for_user(request.user)
                 request.session.flush()

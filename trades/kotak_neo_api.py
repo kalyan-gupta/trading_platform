@@ -58,18 +58,33 @@ class KotakNeoAPI:
         """Return cached authenticated session data if still valid."""
         if not self.user_id:
             return None
+        
+        from trades.models import PlatformSettings
+        settings = PlatformSettings.get_settings()
+        
         session_info = KotakNeoAPI._session_cache.get(self.cache_key)
         if not session_info:
             return None
+            
+        # If SDK timeout is disabled, we ignore the expires_at normally used for re-auth prompts
+        if not settings.sdk_timeout_enabled:
+            return session_info
+            
         if session_info.get('expires_at') and timezone.now() < session_info['expires_at']:
             return session_info
         self.clear_cached_session()
         return None
 
-    def cache_session(self, login_data, duration_seconds=1800):
+    def cache_session(self, login_data, duration_seconds=None):
         """Cache the authenticated client for the session duration."""
         if not self.user_id:
             return
+            
+        if duration_seconds is None:
+            from trades.models import PlatformSettings
+            settings = PlatformSettings.get_settings()
+            duration_seconds = settings.sdk_timeout_seconds if settings.sdk_timeout_enabled else 86400 # 24h if disabled
+            
         expires_at = timezone.now() + timedelta(seconds=duration_seconds)
         KotakNeoAPI._session_cache[self.cache_key] = {
             'client': self.client,
@@ -118,10 +133,14 @@ class KotakNeoAPI:
 
             self.is_authenticated = True
             self.login_data = validate_response
-            self.cache_session(login_data=validate_response)
+            from trades.models import PlatformSettings
+            settings = PlatformSettings.get_settings()
+            sdk_duration = settings.sdk_timeout_seconds if settings.sdk_timeout_enabled else 86400
+
+            self.cache_session(login_data=validate_response, duration_seconds=sdk_duration)
 
             if self.user_credentials_obj:
-                self.user_credentials_obj.mark_sdk_session_active(duration_seconds=1800)
+                self.user_credentials_obj.mark_sdk_session_active(duration_seconds=sdk_duration)
                 self.user_credentials_obj.last_used = timezone.now()
                 self.user_credentials_obj.save()
 
