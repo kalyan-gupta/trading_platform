@@ -1362,7 +1362,7 @@
                     dataArray.forEach(quote => {
                         if (!quote) return;
                         
-                        const instrumentSymbol = quote.instrument_token;
+                        const instrumentSymbol = String(quote.instrument_token);
                         
                         // Update Option Chain Underlying LTP if open
                         if (instrumentSymbol === currentOCUnderlyingSymbol) {
@@ -2443,12 +2443,14 @@
                     const isPESelected = pe && ocSelectedInstruments.has(pe.pSymbol);
 
                     if (ce) {
-                        currentOCTokens.add(ce.pSymbol);
-                        currentOCTokensWithExch.push({ instrument_token: ce.pSymbol, exchange_segment: ce.pExchSeg });
+                        const ceToken = String(ce.pSymbol);
+                        currentOCTokens.add(ceToken);
+                        currentOCTokensWithExch.push({ instrument_token: ceToken, exchange_segment: ce.pExchSeg });
                     }
                     if (pe) {
-                        currentOCTokens.add(pe.pSymbol);
-                        currentOCTokensWithExch.push({ instrument_token: pe.pSymbol, exchange_segment: pe.pExchSeg });
+                        const peToken = String(pe.pSymbol);
+                        currentOCTokens.add(peToken);
+                        currentOCTokensWithExch.push({ instrument_token: peToken, exchange_segment: pe.pExchSeg });
                     }
 
                     tr.innerHTML = `
@@ -2603,24 +2605,41 @@
 
             function unsubscribeOCTokens() {
                 if (currentOCTokensWithExch.length > 0 && tradeSocket.readyState === WebSocket.OPEN) {
-                    tradeSocket.send(JSON.stringify({
+                    const payload = JSON.stringify({
                         'action': 'unsubscribe',
                         'params': { 'instrument_tokens': currentOCTokensWithExch, 'isDepth': false }
-                    }));
+                    });
+                    tradeSocket.send(payload);
+                    // Unsubscribe multiple times as requested to ensure Kotak Neo drops the feed
+                    for (let i = 1; i <= 5; i++) {
+                        setTimeout(() => {
+                            if (tradeSocket.readyState === WebSocket.OPEN) {
+                                tradeSocket.send(payload);
+                            }
+                        }, i * 200);
+                    }
                 }
             }
 
             ocModalEl.addEventListener('hidden.bs.modal', function() {
                 // Clear underlying subscription
                 if (currentOCUnderlyingSymbol && currentOCUnderlyingExch && tradeSocket.readyState === WebSocket.OPEN) {
-                    tradeSocket.send(JSON.stringify({
+                    const payload = JSON.stringify({
                         'action': 'unsubscribe',
                         'params': { 
                             'instrument_tokens': [{ "instrument_token": currentOCUnderlyingSymbol, "exchange_segment": currentOCUnderlyingExch }],
                             'isDepth': false,
                             'isIndex': currentOCUnderlyingIsIndex
                         }
-                    }));
+                    });
+                    tradeSocket.send(payload);
+                    for (let i = 1; i <= 5; i++) {
+                        setTimeout(() => {
+                            if (tradeSocket.readyState === WebSocket.OPEN) {
+                                tradeSocket.send(payload);
+                            }
+                        }, i * 200);
+                    }
                 }
                 
                 unsubscribeOCTokens();
