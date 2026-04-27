@@ -2112,7 +2112,7 @@
                                 'params': { 
                                     'instrument_tokens': [{ "instrument_token": pSymbol, "exchange_segment": pExchSeg }],
                                     'isDepth': false,
-                                    'isIndex': isIndex
+                                    'isIndex': false
                                 }
                             }));
                         }
@@ -2282,7 +2282,7 @@
                         'params': { 
                             'instrument_tokens': [{ "instrument_token": currentOrderSymbol, "exchange_segment": currentOrderExch }],
                             'isDepth': false,
-                            'isIndex': currentOrderIsIndex
+                            'isIndex': false
                         }
                     }));
                 }
@@ -2435,6 +2435,7 @@
                             renderExpiryDial();
                             if (data.expiries && data.expiries.length > 0) {
                                 renderChain(data.expiries[0]);
+                                setTimeout(scrollToATM, 500);
                             }
                         } else {
                             showNotification('Error: ' + data.error, 'danger');
@@ -2463,7 +2464,7 @@
                                 'params': { 
                                     'instrument_tokens': [{ "instrument_token": symbol, "exchange_segment": exch }],
                                     'isDepth': false,
-                                    'isIndex': isIndex
+                                    'isIndex': false
                                 }
                             }));
                         }
@@ -2693,7 +2694,7 @@
                         'params': { 
                             'instrument_tokens': [{ "instrument_token": currentOCUnderlyingSymbol, "exchange_segment": currentOCUnderlyingExch }],
                             'isDepth': false,
-                            'isIndex': currentOCUnderlyingIsIndex
+                            'isIndex': false
                         }
                     });
                     tradeSocket.send(payload);
