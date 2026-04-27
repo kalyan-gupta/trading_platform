@@ -1277,24 +1277,9 @@
 
             tradeSocket.onopen = function(e) {
                 console.log("WebSocket connection established");
-                
-                // Collect instruments from holdings
-                const holdingRows = document.querySelectorAll("[data-token]");
-                let instruments = [];
-                
-                if (holdingRows.length > 0) {
-                    instruments = Array.from(holdingRows).map(row => {
-                        return { "instrument_token": row.dataset.token, "exchange_segment": row.dataset.exch || "nse_cm" };
-                    });
-                }
-                
-                if (instruments.length > 0) {
-                    console.log("Queuing initial subscriptions:", instruments);
-                    pendingSubscriptions.push({
-                        'action': 'subscribe',
-                        'params': { 'instrument_tokens': instruments }
-                    });
-                    processPendingSubscriptions();
+                const holdingsTab = document.getElementById('holdings-tab');
+                if (holdingsTab && holdingsTab.classList.contains('active')) {
+                    manageHoldingsSubscription(true);
                 }
             };
             
@@ -1309,6 +1294,34 @@
                     });
                     pendingSubscriptions = [];
                 }
+            }
+
+            function manageHoldingsSubscription(subscribe) {
+                const holdingRows = document.querySelectorAll("[data-token]");
+                if (holdingRows.length === 0) return;
+                
+                const instruments = Array.from(holdingRows).map(row => {
+                    return { "instrument_token": row.dataset.token, "exchange_segment": row.dataset.exch || "nse_cm" };
+                });
+                
+                const payload = {
+                    'action': subscribe ? 'subscribe' : 'unsubscribe',
+                    'params': { 'instrument_tokens': instruments }
+                };
+                
+                if (isSocketAuthenticated && tradeSocket.readyState === WebSocket.OPEN) {
+                    tradeSocket.send(JSON.stringify(payload));
+                } else if (subscribe) {
+                    // Only queue subscriptions if not yet authenticated.
+                    pendingSubscriptions.push(payload);
+                    processPendingSubscriptions();
+                }
+            }
+
+            const holdingsTab = document.getElementById('holdings-tab');
+            if (holdingsTab) {
+                holdingsTab.addEventListener('shown.bs.tab', () => manageHoldingsSubscription(true));
+                holdingsTab.addEventListener('hidden.bs.tab', () => manageHoldingsSubscription(false));
             }
 
             let currentDepthSymbol = null;
