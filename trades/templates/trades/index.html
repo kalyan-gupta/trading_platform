@@ -369,6 +369,12 @@
         }
         .oc-expiry-item:hover:not(.active) { opacity: 0.8; transform: scale(0.9); }
         .oc-row:hover { background-color: rgba(26, 115, 232, 0.02); }
+        .oc-row td {
+            padding: 14px 2px !important;
+            vertical-align: middle;
+            font-family: 'Roboto Mono', monospace;
+            font-size: 0.9rem;
+        }
         .oc-atm-row { background-color: rgba(255, 193, 7, 0.05); }
         .oc-atm-row .oc-strike-cell { 
             background: #fff3cd !important; 
@@ -440,7 +446,8 @@
         .oc-table td:nth-child(3) { width: 20%; }
         
         .oc-table-container {
-            /* Remove fixed height and overflow here to use the modal's scroll instead */
+            max-height: 650px; /* Targets roughly 18-20 rows */
+            overflow-y: auto;
             position: relative;
         }
         .oc-btn-trade { color: #1a73e8; border-color: #1a73e8; }
@@ -795,7 +802,7 @@
 
     <!-- Option Chain Modal -->
     <div class="modal fade" id="optionChainModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
             <div class="modal-content border-0 shadow-lg">
                 <div class="modal-header bg-dark text-white py-3">
                     <div class="d-flex align-items-center">
