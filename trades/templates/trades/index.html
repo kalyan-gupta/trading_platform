@@ -303,8 +303,8 @@
         .oc-expiry-container {
             position: relative;
             background: #f8f9fa;
-            border-bottom: 1px solid #eee;
-            padding: 1rem 0;
+            border-bottom: 1px solid #dee2e6;
+            padding: 0.5rem 0;
             overflow: hidden;
         }
         .oc-expiry-container::before, .oc-expiry-container::after {
@@ -398,7 +398,52 @@
         }
         .oc-select-btn.active { background: #fd7e14; color: white; border-color: #fd7e14; }
         .oc-btn-basket { color: #fd7e14; border-color: #fd7e14; }
+        
         .oc-btn-basket:hover { background: #fff4e6; color: #d9480f; }
+        
+        /* Unified Sticky Header */
+        .oc-sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 1020;
+            background: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.08);
+        }
+
+        .oc-grid-header {
+            display: grid;
+            grid-template-columns: 25% 15% 20% 15% 25%;
+            text-align: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border-bottom: 1px solid #dee2e6;
+        }
+
+        .oc-grid-header > div {
+            padding: 8px 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-right: 1px solid #f0f0f0;
+        }
+
+        .oc-grid-header > div:last-child { border-right: none; }
+        .oc-grid-header .header-group {
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        
+        /* Ensure table columns match the grid */
+        .oc-table td { width: 25%; }
+        .oc-table td:nth-child(2), .oc-table td:nth-child(4) { width: 15%; }
+        .oc-table td:nth-child(3) { width: 20%; }
+        
+        .oc-table-container {
+            max-height: 75vh;
+            overflow-y: auto;
+            position: relative;
+        }
         .oc-btn-trade { color: #1a73e8; border-color: #1a73e8; }
         .oc-btn-trade:hover { background: #e8f0fe; color: #1557b0; }
         /* Basket Enhancements */
@@ -778,29 +823,31 @@
                     </div>
                 </div>
                 <div class="modal-body p-0">
-                    <!-- Modern Expiry Dial -->
-                    <div class="oc-expiry-container">
-                        <div id="oc-expiry-dial" class="oc-expiry-dial">
-                            <!-- Expiry items populated by JS -->
+                    <div class="oc-sticky-header">
+                        <!-- Modern Expiry Dial -->
+                        <div class="oc-expiry-container">
+                            <div id="oc-expiry-dial" class="oc-expiry-dial">
+                                <!-- Expiry items populated by JS -->
+                            </div>
+                        </div>
+
+                        <!-- Column Headers Grid -->
+                        <div class="oc-grid-header bg-light">
+                            <div style="grid-column: span 2;" class="bg-success-subtle text-success-emphasis header-group">Calls</div>
+                            <div class="header-group">Strike</div>
+                            <div style="grid-column: span 2;" class="bg-danger-subtle text-danger-emphasis header-group">Puts</div>
+                        </div>
+                        <div class="oc-grid-header text-muted text-uppercase" style="font-size: 0.65rem;">
+                            <div>LTP</div>
+                            <div>Actions</div>
+                            <div>Price</div>
+                            <div>Actions</div>
+                            <div>LTP</div>
                         </div>
                     </div>
                     
-                    <div class="table-responsive">
+                    <div class="table-responsive oc-table-container">
                         <table class="table table-hover border-top-0 mb-0 oc-table text-center">
-                            <thead class="sticky-top bg-white shadow-sm" style="z-index: 10;">
-                                <tr>
-                                    <th colspan="2" class="bg-success-subtle text-success-emphasis border-bottom-0 py-3">CALLS</th>
-                                    <th class="bg-light border-bottom-0 py-3">STRIKE</th>
-                                    <th colspan="2" class="bg-danger-subtle text-danger-emphasis border-bottom-0 py-3">PUTS</th>
-                                </tr>
-                                <tr class="bg-white border-bottom small text-muted">
-                                    <th style="width: 25%;">LTP</th>
-                                    <th style="width: 15%;">ACTIONS</th>
-                                    <th style="width: 20%;">PRICE</th>
-                                    <th style="width: 15%;">ACTIONS</th>
-                                    <th style="width: 25%;">LTP</th>
-                                </tr>
-                            </thead>
                             <tbody id="oc-body">
                                 <!-- Populated by JS -->
                             </tbody>
@@ -2568,7 +2615,9 @@
                 currentOCTokens.clear();
                 currentOCTokensWithExch = [];
                 
-                const rows = ocData.chain[expiry];
+                let rows = ocData.chain[expiry];
+                if (!rows) return;
+
                 rows.forEach(row => {
                     const tr = document.createElement('tr');
                     tr.className = 'oc-row';
