@@ -671,7 +671,7 @@
                     {% if account_info.account_id %}
                         <span class="badge bg-light text-dark border me-2">ID: {{ account_info.account_id }}</span>
                     {% endif %}
-                    <button class="btn btn-sm btn-outline-secondary" onclick="window.location.reload();">
+                    <button class="btn btn-sm btn-outline-secondary" id="refresh-limits-btn">
                         <i class="bi bi-arrow-clockwise"></i> Refresh
                     </button>
                 </div>
@@ -961,6 +961,11 @@
             <div class="card-body">
                 <div class="tab-content" id="myTabContent">
                     <div class="tab-pane fade show active" id="orders-tab-pane" role="tabpanel" aria-labelledby="orders-tab" tabindex="0">
+                        <div class="d-flex justify-content-end mb-2">
+                            <button class="btn btn-sm btn-outline-primary" id="refresh-orders-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Refresh Orders
+                            </button>
+                        </div>
                         {% if order_book %}
                         <div class="table-responsive">
                             <table class="table table-striped table-hover caption-top">
@@ -999,6 +1004,11 @@
                         {% endif %}
                     </div>
                     <div class="tab-pane fade" id="holdings-tab-pane" role="tabpanel" aria-labelledby="holdings-tab" tabindex="0">
+                        <div class="d-flex justify-content-end mb-2">
+                            <button class="btn btn-sm btn-outline-primary" id="refresh-holdings-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Refresh Holdings
+                            </button>
+                        </div>
                          {% if holdings %}
                          <div class="table-responsive">
                             <table class="table table-hover caption-top" id="holdings-table">
@@ -1036,6 +1046,11 @@
                         {% endif %}
                     </div>
                     <div class="tab-pane fade" id="positions-tab-pane" role="tabpanel" aria-labelledby="positions-tab" tabindex="0">
+                        <div class="d-flex justify-content-end mb-2">
+                            <button class="btn btn-sm btn-outline-primary" id="refresh-positions-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Refresh Positions
+                            </button>
+                        </div>
                         {% if positions %}
                         <div class="table-responsive">
                             <table class="table table-hover caption-top" id="positions-table">
@@ -4432,6 +4447,210 @@
             };
 
             // --- End Basket System ---
+
+            // --- Start Refresh System ---
+            function setRefreshLoading(btnId, isLoading) {
+                const btn = document.getElementById(btnId);
+                if (!btn) return;
+                const icon = btn.querySelector('i');
+                if (isLoading) {
+                    btn.disabled = true;
+                    if (icon) icon.classList.add('spin-animation');
+                } else {
+                    btn.disabled = false;
+                    if (icon) icon.classList.remove('spin-animation');
+                }
+            }
+
+            document.getElementById('refresh-orders-btn')?.addEventListener('click', function() {
+                setRefreshLoading('refresh-orders-btn', true);
+                fetch('/get_order_book_ajax/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            updateOrdersTable(data.data);
+                            showNotification('Order book refreshed', 'success');
+                        } else {
+                            showNotification('Failed to refresh orders: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(err => showNotification('Error refreshing orders', 'danger'))
+                    .finally(() => setRefreshLoading('refresh-orders-btn', false));
+            });
+
+            document.getElementById('refresh-holdings-btn')?.addEventListener('click', function() {
+                setRefreshLoading('refresh-holdings-btn', true);
+                fetch('/get_holdings_ajax/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            updateHoldingsTable(data.data);
+                            showNotification('Holdings refreshed', 'success');
+                        } else {
+                            showNotification('Failed to refresh holdings: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(err => showNotification('Error refreshing holdings', 'danger'))
+                    .finally(() => setRefreshLoading('refresh-holdings-btn', false));
+            });
+
+            document.getElementById('refresh-positions-btn')?.addEventListener('click', function() {
+                setRefreshLoading('refresh-positions-btn', true);
+                fetch('/get_positions_ajax/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            updatePositionsTable(data.data);
+                            showNotification('Positions refreshed', 'success');
+                        } else {
+                            showNotification('Failed to refresh positions: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(err => showNotification('Error refreshing positions', 'danger'))
+                    .finally(() => setRefreshLoading('refresh-positions-btn', false));
+            });
+
+            document.getElementById('refresh-limits-btn')?.addEventListener('click', function() {
+                setRefreshLoading('refresh-limits-btn', true);
+                fetch('/get_limits_ajax/')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            updateLimitsUI(data.data);
+                            showNotification('Financial balance refreshed', 'success');
+                        } else {
+                            showNotification('Failed to refresh balance: ' + data.message, 'danger');
+                        }
+                    })
+                    .catch(err => showNotification('Error refreshing balance', 'danger'))
+                    .finally(() => setRefreshLoading('refresh-limits-btn', false));
+            });
+
+            function updateOrdersTable(orders) {
+                const tbody = document.querySelector('#orders-tab-pane tbody');
+                if (!tbody) return;
+                
+                if (!orders || orders.length === 0) {
+                    document.getElementById('orders-tab-pane').innerHTML = `
+                        <div class="d-flex justify-content-end mb-2">
+                            <button class="btn btn-sm btn-outline-primary" id="refresh-orders-btn">
+                                <i class="bi bi-arrow-clockwise me-1"></i> Refresh Orders
+                            </button>
+                        </div>
+                        <div class="text-center p-4">
+                            <i class="bi bi-info-circle display-4 text-muted"></i>
+                            <p class="mt-3">No orders found.</p>
+                        </div>`;
+                    // Re-attach listener since we replaced innerHTML
+                    document.getElementById('refresh-orders-btn').addEventListener('click', () => document.getElementById('refresh-orders-btn').click());
+                    return;
+                }
+
+                let html = '';
+                orders.forEach(order => {
+                    html += `
+                        <tr class="order-book-row" data-order-id="${order.nOrdNo}" data-order-symbol="${order.sym}" data-order-type="${order.trnsTp}" data-order-qty="${order.qty}" data-order-price="${order.prc}" style="cursor: pointer;">
+                            <td class="small text-muted">${order.nOrdNo}</td>
+                            <td>${order.ordDtTm}</td>
+                            <td class="fw-bold">${order.sym}</td>
+                            <td><span class="badge rounded-pill text-bg-${order.trnsTp === 'B' ? 'success' : 'danger'}">${order.trnsTp}</span></td>
+                            <td>${order.qty}</td>
+                            <td>₹${parseFloat(order.prc).toFixed(2)}</td>
+                            <td><span class="badge rounded-pill bg-info-subtle text-info-emphasis border border-info-subtle">${order.stat}</span></td>
+                        </tr>`;
+                });
+                tbody.innerHTML = html;
+            }
+
+            function updateHoldingsTable(holdings) {
+                const table = document.getElementById('holdings-table');
+                if (!table) return;
+                const tbody = table.querySelector('tbody');
+                
+                // Unsubscribe from old tokens
+                manageTableSubscriptions('holdings-table', false);
+                
+                let html = '';
+                holdings.forEach(h => {
+                    html += `
+                        <tr data-token="${h.instrument_token}" data-exch="${h.exchange_segment}" data-qty="${h.quantity}" data-avg="${h.average_price}">
+                            <td class="fw-bold">${h.tradingsymbol}</td>
+                            <td data-quantity="${h.quantity}">${h.quantity}</td>
+                            <td data-avg-price="${h.average_price}">₹${parseFloat(h.average_price).toFixed(2)}</td>
+                            <td id="ltp-${h.instrument_token}" class="fw-bold">₹${parseFloat(h.last_price).toFixed(2)}</td>
+                            <td id="pnl-${h.instrument_token}" class="${h.pnl > 0 ? 'text-success' : (h.pnl < 0 ? 'text-danger' : '')}">
+                                ₹${parseFloat(h.pnl).toFixed(2)}
+                                <i class="bi ${h.pnl > 0 ? 'bi-arrow-up-right' : (h.pnl < 0 ? 'bi-arrow-down-left' : '')}"></i>
+                            </td>
+                        </tr>`;
+                });
+                tbody.innerHTML = html;
+                
+                // Re-subscribe and re-attach click handlers
+                manageTableSubscriptions('holdings-table', true);
+                initPortfolioClickHandlers();
+            }
+
+            function updatePositionsTable(positions) {
+                const table = document.getElementById('positions-table');
+                if (!table) return;
+                const tbody = table.querySelector('tbody');
+                
+                // Unsubscribe from old tokens
+                manageTableSubscriptions('positions-table', false);
+                
+                let html = '';
+                positions.forEach(p => {
+                    html += `
+                        <tr data-token="${p.token}" data-exch="${p.exchange}" data-qty="${p.qty}" data-avg="${p.avgPrc}">
+                            <td class="fw-bold">${p.trdSym}</td>
+                            <td>${p.qty}</td>
+                            <td>₹${parseFloat(p.avgPrc).toFixed(2)}</td>
+                            <td id="pos-ltp-${p.token}">₹${parseFloat(p.ltp).toFixed(2)}</td>
+                            <td id="pos-pnl-${p.token}" class="${p.pnl > 0 ? 'text-success' : (p.pnl < 0 ? 'text-danger' : '')}">
+                                ₹${parseFloat(p.pnl).toFixed(2)}
+                            </td>
+                            <td id="pos-daypnl-${p.token}" class="${p.dayPnl > 0 ? 'text-success' : (p.dayPnl < 0 ? 'text-danger' : '')}">
+                                ₹${parseFloat(p.dayPnl).toFixed(2)}
+                            </td>
+                        </tr>`;
+                });
+                tbody.innerHTML = html;
+                
+                // Re-subscribe and re-attach click handlers
+                manageTableSubscriptions('positions-table', true);
+                initPortfolioClickHandlers();
+            }
+
+            function updateLimitsUI(limits) {
+                // Update the main numbers
+                const primaryPower = document.querySelector('.h3.fw-bold.text-primary');
+                if (primaryPower) primaryPower.textContent = '₹' + parseFloat(limits.available_trade).toFixed(2);
+                
+                const dangerMargin = document.querySelector('.h4.fw-bold.text-danger');
+                if (dangerMargin) dangerMargin.textContent = '₹' + parseFloat(limits.margin_used).toFixed(2);
+                
+                const warningBenefit = document.querySelector('.h4.fw-bold.text-warning');
+                if (warningBenefit) warningBenefit.textContent = '₹' + parseFloat(limits.unsettled_credit).toFixed(2);
+                
+                const darkValue = document.querySelector('.h4.fw-bold.text-dark');
+                if (darkValue) darkValue.textContent = '₹' + parseFloat(limits.total_cash).toFixed(2);
+                
+                // Update collateral span
+                const collateralSpan = document.querySelector('.text-muted.small:last-of-type');
+                if (collateralSpan && collateralSpan.textContent.includes('Collateral')) {
+                    collateralSpan.textContent = 'Collateral: ₹' + parseFloat(limits.collateral).toFixed(2);
+                }
+                
+                // Update breakdown details
+                const detailValues = document.querySelectorAll('#balanceDetails .col-6.text-end');
+                if (detailValues.length >= 3) {
+                    detailValues[0].textContent = '₹' + limits.total_cash;
+                    detailValues[1].textContent = '+ ₹' + limits.unsettled_credit;
+                    detailValues[2].textContent = '₹' + limits.available_trade;
+                }
+            }
+            // --- End Refresh System ---
 
             // Start session expiry checking
             checkSessionExpiry();

@@ -43,6 +43,10 @@ urlpatterns = [
     path('reauthenticate/', views.reauthenticate_view, name='reauthenticate'),
     path('logout_sdk/', views.logout_sdk_session, name='logout_sdk'),
     path('check_sdk_status/', views.check_sdk_status, name='check_sdk_status'),
+    path('get_order_book_ajax/', views.get_order_book_ajax, name='get_order_book_ajax'),
+    path('get_holdings_ajax/', views.get_holdings_ajax, name='get_holdings_ajax'),
+    path('get_positions_ajax/', views.get_positions_ajax, name='get_positions_ajax'),
+    path('get_limits_ajax/', views.get_limits_ajax, name='get_limits_ajax'),
     
     # Basket URLs
     path('basket/add/', views_basket.add_to_basket_ajax, name='add_to_basket_ajax'),

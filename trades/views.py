@@ -1351,36 +1351,34 @@ def index(request):
     if 'error' in account_info:
         messages.warning(request, f"Could not fetch account info: {account_info['error']}")
         account_info = {} # Reset to avoid template errors
-    if isinstance(holdings, dict) and 'error' in holdings:
-        messages.warning(request, f"Could not fetch holdings: {holdings['error']}")
-        holdings = [] # Reset to avoid template errors
-    if isinstance(positions, dict) and 'error' in positions:
-        messages.warning(request, f"Could not fetch positions: {positions['error']}")
-        positions = [] # Reset to avoid template errors
     
-    limits = {}
-    debug_limits = None
-    if 'error' in raw_limits:
-        messages.warning(request, f"Could not fetch limits: {raw_limits['error']}")
-    else:
-        # The limits response is a flat dictionary. Let's parse it directly.
-        if isinstance(raw_limits, dict) and raw_limits.get('stat') == 'Ok':
-            limits = {
-            'available_trade': raw_limits.get('Net', '0.00'),
-                'margin_used': raw_limits.get('MarginUsed', '0.00'),
-                'collateral': raw_limits.get('CollateralValue', '0.00'),
-                'total_cash': raw_limits.get('RmsPayInAmt', '0.00'),
-                'unsettled_credit': raw_limits.get('CncSellcrdPresent', '0.00'), 
-            }
-        
-        # If we couldn't parse it for any reason, show the debug info
-        debug_limits = raw_limits
+    processed_holdings, portfolio_summary = _process_holdings_data(holdings, request)
+    processed_positions = _process_positions_data(positions, request)
+    limits, debug_limits = _process_limits_data(raw_limits, request)
 
     if isinstance(order_book, dict) and 'error' in order_book:
         messages.warning(request, f"Could not fetch order book: {order_book['error']}")
         order_book = [] # Reset to avoid template errors
 
-    # Process holdings and calculate portfolio summary
+    context = {
+        'api_response': api_response,
+        'account_info': account_info,
+        'holdings': processed_holdings,
+        'positions': processed_positions,
+        'limits': limits,
+        'order_book': order_book,
+        'portfolio_summary': portfolio_summary,
+        'debug_limits': debug_limits,
+        'sdk_active': sdk_active,
+        'is_connected': True if account_info and 'error' not in account_info else False,
+        'platform_settings': PlatformSettings.get_settings(),
+    }
+
+    return render(request, 'trades/index.html', context)
+
+
+def _process_holdings_data(holdings, request=None):
+    """Helper to process raw holdings data from SDK"""
     processed_holdings = []
     portfolio_summary = {
         'total_invested': 0,
@@ -1389,10 +1387,15 @@ def index(request):
         'pnl_percentage': 0
     }
     
+    if isinstance(holdings, dict) and 'error' in holdings:
+        if request:
+            messages.warning(request, f"Could not fetch holdings: {holdings['error']}")
+        return [], portfolio_summary
+
     if isinstance(holdings, list):
         for h in holdings:
             if not isinstance(h, dict):
-                continue # Skip items that are not dictionaries
+                continue
 
             try:
                 qty = float(h.get('quantity', 0))
@@ -1417,22 +1420,30 @@ def index(request):
                     'pnl': pnl,
                 })
             except (ValueError, TypeError):
-                # Skip holding if data is malformed
                 continue
         
         portfolio_summary['total_pnl'] = portfolio_summary['current_value'] - portfolio_summary['total_invested']
         if portfolio_summary['total_invested'] > 0:
             portfolio_summary['pnl_percentage'] = (portfolio_summary['total_pnl'] / portfolio_summary['total_invested']) * 100
+            
+    return processed_holdings, portfolio_summary
 
-    # Process positions
+
+def _process_positions_data(positions, request=None):
+    """Helper to process raw positions data from SDK"""
     processed_positions = []
+    
+    if isinstance(positions, dict) and 'error' in positions:
+        if request:
+            messages.warning(request, f"Could not fetch positions: {positions['error']}")
+        return []
+
     if isinstance(positions, list):
         for p in positions:
             if not isinstance(p, dict):
                 continue
             
             try:
-                # Calculate net quantity
                 cf_buy = float(p.get('cfBuyQty', 0))
                 cf_sell = float(p.get('cfSellQty', 0))
                 fl_buy = float(p.get('flBuyQty', 0))
@@ -1440,13 +1451,10 @@ def index(request):
                 
                 qty = (cf_buy + fl_buy) - (cf_sell + fl_sell)
                 
-                # Calculate average price
-                # Buy Avg = (cfBuyAmt + buyAmt) / (cfBuyQty + flBuyQty)
                 buy_amt = float(p.get('buyAmt', 0)) + float(p.get('cfBuyAmt', 0))
                 buy_qty = cf_buy + fl_buy
                 avg_price = buy_amt / buy_qty if buy_qty > 0 else 0
                 
-                # Initial LTP and PNL
                 ltp = float(p.get('upldPrc', 0)) or avg_price
                 pnl = (ltp - avg_price) * qty
                 
@@ -1458,27 +1466,92 @@ def index(request):
                     'avgPrc': avg_price,
                     'ltp': ltp,
                     'pnl': pnl,
-                    'dayPnl': 0, # Day P&L needs more complex calculation or API support
+                    'dayPnl': 0, 
                     'multiplier': float(p.get('multiplier', 1)),
                 })
             except (ValueError, TypeError, ZeroDivisionError):
                 continue
+    return processed_positions
 
-    context = {
-        'api_response': api_response,
-        'account_info': account_info,
-        'holdings': processed_holdings,
-        'positions': processed_positions,
-        'limits': limits,
-        'order_book': order_book,
-        'portfolio_summary': portfolio_summary,
-        'debug_limits': debug_limits,
-        'sdk_active': sdk_active,
-        'is_connected': True if account_info and 'error' not in account_info else False,
-        'platform_settings': PlatformSettings.get_settings(),
-    }
 
-    return render(request, 'trades/index.html', context)
+def _process_limits_data(raw_limits, request=None):
+    """Helper to process raw limits data from SDK"""
+    limits = {}
+    debug_limits = raw_limits
+    
+    if isinstance(raw_limits, dict) and 'error' in raw_limits:
+        if request:
+            messages.warning(request, f"Could not fetch limits: {raw_limits['error']}")
+        return {}, raw_limits
+
+    if isinstance(raw_limits, dict) and raw_limits.get('stat') == 'Ok':
+        limits = {
+            'available_trade': raw_limits.get('Net', '0.00'),
+            'margin_used': raw_limits.get('MarginUsed', '0.00'),
+            'collateral': raw_limits.get('CollateralValue', '0.00'),
+            'total_cash': raw_limits.get('RmsPayInAmt', '0.00'),
+            'unsettled_credit': raw_limits.get('CncSellcrdPresent', '0.00'), 
+        }
+    return limits, debug_limits
+
+
+@ajax_login_required
+def get_order_book_ajax(request):
+    """AJAX view to fetch order book"""
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        order_book = api.get_order_book()
+        
+        if isinstance(order_book, dict) and 'error' in order_book:
+            return JsonResponse({'status': 'error', 'message': order_book['error']}, status=400)
+            
+        return JsonResponse({'status': 'success', 'data': order_book})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@ajax_login_required
+def get_holdings_ajax(request):
+    """AJAX view to fetch holdings"""
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        holdings = api.get_holdings()
+        processed_holdings, portfolio_summary = _process_holdings_data(holdings)
+        
+        return JsonResponse({
+            'status': 'success', 
+            'data': processed_holdings,
+            'summary': portfolio_summary
+        })
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@ajax_login_required
+def get_positions_ajax(request):
+    """AJAX view to fetch positions"""
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        positions = api.get_positions()
+        processed_positions = _process_positions_data(positions)
+        
+        return JsonResponse({'status': 'success', 'data': processed_positions})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
+@ajax_login_required
+def get_limits_ajax(request):
+    """AJAX view to fetch financial limits"""
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        raw_limits = api.get_limits()
+        limits, debug_limits = _process_limits_data(raw_limits)
+        
+        return JsonResponse({'status': 'success', 'data': limits})
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
 @ajax_login_required
 def check_sdk_status(request):
     """Check if the SDK is authenticated for the current session."""
