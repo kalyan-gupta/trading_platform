@@ -937,6 +937,42 @@ def search_scrip_cache(request):
 
 
 @login_required_with_session_check
+def get_scrip_info_ajax(request):
+    token = request.GET.get('token')
+    exch = request.GET.get('exch')
+    if not token or not exch:
+        return JsonResponse({'error': 'Missing token or exchange'}, status=400)
+
+    try:
+        query = f"""
+            SELECT 
+                pSymbol, pExchSeg, pSymbolName, pTrdSymbol, pOptionType, pInstType,
+                CAST(COALESCE("dStrikePrice;", 0) AS DECIMAL) / 100 as dStrikePrice,
+                pScripRefKey, pDesc,
+                COALESCE(pGroup, '') as pGroup,
+                COALESCE(CAST(pAssetCode AS VARCHAR), '') as pAssetCode,
+                has_option_chain,
+                CAST(COALESCE(dTickSize, 0) AS DECIMAL) / 100 as dTickSize,
+                CAST(COALESCE(lLotSize, 0) AS INTEGER) as lLotSize
+            FROM active_market_data
+            WHERE pSymbol = '{token}' AND pExchSeg = '{exch}'
+            LIMIT 1
+        """
+        with _duckdb_lock:
+            results = _duckdb_connection.execute(query).fetchall()
+        
+        if not results:
+            return JsonResponse({'error': 'Scrip not found in cache'}, status=404)
+        
+        columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc', 'pGroup', 'pAssetCode', 'has_option_chain', 'dTickSize', 'lLotSize']
+        data = dict(zip(columns, results[0]))
+        
+        return JsonResponse({'status': 'success', 'data': data})
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+
+
+@login_required_with_session_check
 def get_option_chain_ajax(request):
     p_symbol = request.GET.get('p_symbol')
     if not p_symbol:

@@ -922,11 +922,20 @@
                         <div id="modal-data" style="display: none;"></div>
                     </div>
                     <div class="modal-footer">
+                        <div id="modal-position-info" class="me-auto small text-muted" style="display: none;">
+                            Your Position: <span id="modal-pos-qty" class="fw-bold">0</span> @ <span id="modal-pos-avg" class="fw-bold">0</span>
+                        </div>
                         <button type="button" class="btn btn-outline-info" id="modal-option-chain-btn" style="display: none;">
                             <i class="bi bi-layers-half me-1"></i> Option Chain
                         </button>
                         <button type="button" class="btn btn-outline-primary" id="modal-show-depth-btn">
-                            <i class="bi bi-graph-up me-1"></i> Show Depth
+                            <i class="bi bi-graph-up me-1"></i> Depth
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="modal-add-basket-btn">
+                            <i class="bi bi-cart-plus me-1"></i> Basket
+                        </button>
+                        <button type="button" class="btn btn-danger" id="modal-square-off-btn" style="display: none;">
+                            <i class="bi bi-x-circle me-1"></i> Square Off
                         </button>
                         <button type="button" class="btn btn-primary" id="modal-place-order-btn">
                             <i class="bi bi-plus-circle me-1"></i> Place Order
@@ -1384,6 +1393,22 @@
         };
 
         document.addEventListener("DOMContentLoaded", function() {
+            // Helper function to get CSRF token
+            function getCookie(name) {
+                let cookieValue = null;
+                if (document.cookie && document.cookie !== '') {
+                    const cookies = document.cookie.split(';');
+                    for (let i = 0; i < cookies.length; i++) {
+                        const cookie = cookies[i].trim();
+                        if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                            cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                            break;
+                        }
+                    }
+                }
+                return cookieValue;
+            }
+
             const tradeSocket = new WebSocket(`ws://${window.location.host}/ws/trades/`);
 
             tradeSocket.onopen = function(e) {
@@ -1455,7 +1480,232 @@
                 });
             });
 
+            // Portfolio row click handlers
+            function initPortfolioClickHandlers() {
+                const portfolioTables = ['holdings-table', 'positions-table'];
+                portfolioTables.forEach(tableId => {
+                    const table = document.getElementById(tableId);
+                    if (!table) return;
+                    
+                    table.addEventListener('click', function(e) {
+                        const row = e.target.closest('tr[data-token]');
+                        if (!row) return;
+                        
+                        const token = row.dataset.token;
+                        const exch = row.dataset.exch;
+                        const qty = parseFloat(row.dataset.qty);
+                        const avg = parseFloat(row.dataset.avg);
+                        
+                        // Fetch full scrip info from server
+                        fetch(`/get_scrip_info/?token=${token}&exch=${exch}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.status === 'success') {
+                                    showScripActionModal(data.data, {
+                                        isPortfolio: true,
+                                        portfolioQty: qty,
+                                        portfolioAvg: avg,
+                                        tableId: tableId
+                                    });
+                                } else {
+                                    showNotification('Error fetching scrip info: ' + (data.error || 'Unknown error'), 'danger');
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                showNotification('Failed to fetch scrip info', 'danger');
+                            });
+                    });
+                    
+                    // Add pointer cursor to rows
+                    table.querySelectorAll('tbody tr[data-token]').forEach(row => {
+                        row.style.cursor = 'pointer';
+                    });
+                });
+            }
+
+            function showScripActionModal(result, portfolioContext = null) {
+                const isFO = result.pExchSeg && result.pExchSeg.toLowerCase().includes('_fo');
+                let typeLabel = 'Stock';
+                if (result.pInstType) {
+                    const it = result.pInstType.toUpperCase();
+                    if (it === 'OPTSTK' || it === 'OPTIDX' || it === 'SO' || it === 'IO') typeLabel = 'Option';
+                    else if (it === 'FUTIDX' || it === 'FUTSTK' || it === 'SF' || it === 'IF') typeLabel = 'Future';
+                }
+                
+                const displayName = (typeLabel === 'Option' || typeLabel === 'Future') ? (result.pTrdSymbol || result.pSymbolName) : result.pSymbolName;
+                
+                let detailsHtml = `
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Instrument</label>
+                        <p class="h6 mb-0">${displayName}</p>
+                    </div>
+                `;
+                
+                if (isFO) {
+                    detailsHtml += `
+                        <div class="row g-3">
+                            <div class="col-4">
+                                <label class="form-label text-muted small">Option Type</label>
+                                <p class="h6 mb-0">${result.pOptionType || '-'}</p>
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label text-muted small">Strike Price</label>
+                                <p class="h6 mb-0">${result.dStrikePrice > 0 ? result.dStrikePrice : '-'}</p>
+                            </div>
+                            <div class="col-4">
+                                <label class="form-label text-muted small">Exchange</label>
+                                <p class="h6 mb-0">${result.pExchSeg.toUpperCase()}</p>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    detailsHtml += `
+                        <div class="mb-3">
+                            <label class="form-label text-muted small">Description</label>
+                            <p class="h6 mb-0">${result.pDesc || '-'}</p>
+                        </div>
+                    `;
+                }
+                
+                document.getElementById('modal-details').innerHTML = detailsHtml;
+                
+                // Store data
+                const modalData = document.getElementById('modal-data');
+                modalData.dataset.pSymbol = result.pSymbol;
+                modalData.dataset.pExchSeg = result.pExchSeg;
+                modalData.dataset.pTrdSymbol = result.pTrdSymbol || result.pSymbol;
+                modalData.dataset.pOptionType = result.pOptionType || '-';
+                modalData.dataset.lLotSize = result.lLotSize || 1;
+                modalData.dataset.dTickSize = result.dTickSize || 0.05;
+                modalData.dataset.pDesc = result.pDesc || '';
+                modalData.dataset.displayName = displayName;
+                const isIdx = ((result.pExchSeg === 'nse_cm' || result.pExchSeg === 'bse_cm') && (!result.pGroup || result.pGroup.trim() === ''));
+                modalData.dataset.isIndex = isIdx ? 'true' : 'false';
+                modalData.dataset.pAssetCode = result.pAssetCode || '';
+                modalData.dataset.hasOptionChain = result.has_option_chain || false;
+                
+                // Position info handling
+                const posInfo = document.getElementById('modal-position-info');
+                const squareOffBtn = document.getElementById('modal-square-off-btn');
+                
+                if (portfolioContext) {
+                    posInfo.style.display = 'block';
+                    document.getElementById('modal-pos-qty').textContent = portfolioContext.portfolioQty;
+                    document.getElementById('modal-pos-avg').textContent = '₹' + portfolioContext.portfolioAvg.toFixed(2);
+                    
+                    if (portfolioContext.portfolioQty !== 0) {
+                        squareOffBtn.style.display = 'inline-block';
+                        squareOffBtn.dataset.qty = Math.abs(portfolioContext.portfolioQty);
+                        squareOffBtn.dataset.side = portfolioContext.portfolioQty > 0 ? 'S' : 'B';
+                        // For holdings (tableId === 'holdings-table'), side is always 'S' and qty is positive
+                        if (portfolioContext.tableId === 'holdings-table') {
+                            squareOffBtn.dataset.side = 'S';
+                            squareOffBtn.textContent = 'Exit Holding';
+                        } else {
+                            squareOffBtn.textContent = 'Square Off';
+                        }
+                    } else {
+                        squareOffBtn.style.display = 'none';
+                    }
+                } else {
+                    posInfo.style.display = 'none';
+                    squareOffBtn.style.display = 'none';
+                }
+                
+                document.getElementById('modal-place-order-btn').style.display = isIdx ? 'none' : 'inline-block';
+                document.getElementById('modal-show-depth-btn').style.display = isIdx ? 'none' : 'inline-block';
+                document.getElementById('modal-add-basket-btn').style.display = isIdx ? 'none' : 'inline-block';
+                
+                const ocBtn = document.getElementById('modal-option-chain-btn');
+                ocBtn.style.display = result.has_option_chain ? 'inline-block' : 'none';
+                
+                const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
+                modal.show();
+            }
+
+            // Square Off button handler
+            document.getElementById('modal-square-off-btn').addEventListener('click', function() {
+                const qty = this.dataset.qty;
+                const side = this.dataset.side;
+                
+                const modalData = document.getElementById('modal-data').dataset;
+                
+                // Hide current modal
+                bootstrap.Modal.getInstance(document.getElementById('scripActionModal')).hide();
+                
+                // Open place order modal with pre-filled values
+                // We need to wait a bit for the backdrop to clear
+                setTimeout(() => {
+                    openPlaceOrderModal(
+                        modalData.displayName,
+                        modalData.pSymbol,
+                        modalData.pExchSeg,
+                        modalData.pTrdSymbol,
+                        modalData.pOptionType,
+                        parseFloat(modalData.lLotSize),
+                        parseFloat(modalData.dTickSize),
+                        modalData.isIndex === 'true'
+                    );
+                    
+                    // Set side and quantity
+                    syncSide(side);
+                    document.getElementById('order-quantity').value = qty;
+                    calculateTotal();
+                }, 200);
+            });
+
+            // Add to Basket button handler
+            document.getElementById('modal-add-basket-btn').addEventListener('click', function() {
+                const modalData = document.getElementById('modal-data').dataset;
+                const squareOffBtn = document.getElementById('modal-square-off-btn');
+                
+                // Default to Buy, 1 Lot
+                let side = 'B';
+                let qty = modalData.lLotSize;
+                
+                // If it's a portfolio scrip, default to opposite side and current qty
+                if (squareOffBtn.style.display !== 'none') {
+                    side = squareOffBtn.dataset.side;
+                    qty = squareOffBtn.dataset.qty;
+                }
+                
+                const payload = {
+                    instrument_token: modalData.pSymbol,
+                    exchange_segment: modalData.pExchSeg,
+                    trading_symbol: modalData.pTrdSymbol,
+                    quantity: qty,
+                    transaction_type: side,
+                    order_type: 'MKT',
+                    product_type: (modalData.pExchSeg === 'nse_cm' || modalData.pExchSeg === 'bse_cm') ? 'CNC' : 'NRML',
+                    price: 0
+                };
+                
+                fetch('/basket/add/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify(payload)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showNotification(`Added ${modalData.pTrdSymbol} to basket`, 'success');
+                        bootstrap.Modal.getInstance(document.getElementById('scripActionModal')).hide();
+                    } else {
+                        showNotification('Error adding to basket: ' + (data.error || 'Unknown error'), 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showNotification('Failed to add to basket', 'danger');
+                });
+            });
+
             // Tab subscriptions are now handled by the generic listener above
+            initPortfolioClickHandlers();
 
             let currentDepthSymbol = null;
             let currentDepthExch = null;
@@ -1835,73 +2085,7 @@
                                 row.style.cursor = 'pointer';
                                 row.setAttribute('title', result.pDesc || '');
                                 row.addEventListener('click', function() {
-                                    const isFO = result.pExchSeg && result.pExchSeg.toLowerCase().includes('_fo');
-                                    let detailsHtml = '';
-                                    
-                                    if (isFO) {
-                                        detailsHtml = `
-                                            <div class="mb-3">
-                                                <label class="form-label text-muted small">Instrument</label>
-                                                <p class="h6 mb-0">${displayName}</p>
-                                            </div>
-                                            <div class="row g-3">
-                                                <div class="col-4">
-                                                    <label class="form-label text-muted small">Option Type</label>
-                                                    <p class="h6 mb-0">${result.pOptionType || '-'}</p>
-                                                </div>
-                                                <div class="col-4">
-                                                    <label class="form-label text-muted small">Strike Price</label>
-                                                    <p class="h6 mb-0">${result.dStrikePrice > 0 ? result.dStrikePrice : '-'}</p>
-                                                </div>
-                                                <div class="col-4">
-                                                    <label class="form-label text-muted small">Expiry Date</label>
-                                                    <p class="h6 mb-0">${expiryDate}</p>
-                                                </div>
-                                            </div>
-                                        `;
-                                    } else {
-                                        detailsHtml = `
-                                            <div class="mb-3">
-                                                <label class="form-label text-muted small">Instrument</label>
-                                                <p class="h6 mb-0">${displayName}</p>
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label text-muted small">Description</label>
-                                                <p class="h6 mb-0">${result.pDesc || '-'}</p>
-                                            </div>
-                                        `;
-                                    }
-                                    
-                                    document.getElementById('modal-details').innerHTML = detailsHtml;
-                                    
-                                    // Store data for depth and order
-                                    document.getElementById('modal-data').dataset.pSymbol = result.pSymbol;
-                                    document.getElementById('modal-data').dataset.pExchSeg = result.pExchSeg;
-                                    document.getElementById('modal-data').dataset.pTrdSymbol = result.pTrdSymbol || result.pSymbol;
-                                    document.getElementById('modal-data').dataset.pOptionType = result.pOptionType || '-';
-                                    document.getElementById('modal-data').dataset.lLotSize = result.lLotSize || 1;
-                                    document.getElementById('modal-data').dataset.dTickSize = result.dTickSize || 0.05;
-                                    document.getElementById('modal-data').dataset.pDesc = result.pDesc || '';
-                                    document.getElementById('modal-data').dataset.displayName = displayName;
-                                    const isIdx = ((result.pExchSeg === 'nse_cm' || result.pExchSeg === 'bse_cm') && (!result.pGroup || result.pGroup.trim() === ''));
-                                    document.getElementById('modal-data').dataset.isIndex = isIdx ? 'true' : 'false';
-                                    document.getElementById('modal-data').dataset.pAssetCode = result.pAssetCode || '';
-                                    document.getElementById('modal-data').dataset.hasOptionChain = result.has_option_chain || false;
-                                    
-                                    // Toggle visibility of Place Order and Depth buttons for indices (indices are not tradable)
-                                    document.getElementById('modal-place-order-btn').style.display = isIdx ? 'none' : 'inline-block';
-                                    document.getElementById('modal-show-depth-btn').style.display = isIdx ? 'none' : 'inline-block';
-                                    
-                                    // Show/Hide Option Chain button
-                                    const ocBtn = document.getElementById('modal-option-chain-btn');
-                                    if (result.has_option_chain) {
-                                        ocBtn.style.display = 'inline-block';
-                                    } else {
-                                        ocBtn.style.display = 'none';
-                                    }
-                                    
-                                    const modal = new bootstrap.Modal(document.getElementById('scripActionModal'));
-                                    modal.show();
+                                    showScripActionModal(result);
                                 });
                                 
                                 scripResultsBody.appendChild(row);
@@ -1930,6 +2114,27 @@
             });
 
             // Scrip action modal button handlers
+            document.getElementById('modal-place-order-btn').addEventListener('click', function() {
+                const modalData = document.getElementById('modal-data').dataset;
+                
+                // Hide the action modal
+                const actionModal = bootstrap.Modal.getInstance(document.getElementById('scripActionModal'));
+                actionModal.hide();
+                
+                // Show place order modal
+                setTimeout(() => {
+                    openPlaceOrderModal(
+                        modalData.displayName,
+                        modalData.pSymbol,
+                        modalData.pExchSeg,
+                        modalData.pTrdSymbol,
+                        modalData.pOptionType,
+                        parseFloat(modalData.lLotSize),
+                        parseFloat(modalData.dTickSize),
+                        modalData.isIndex === 'true'
+                    );
+                }, 200);
+            });
             document.getElementById('modal-show-depth-btn').addEventListener('click', function() {
                 const scripName = document.getElementById('modal-data').dataset.displayName;
                 const pSymbol = document.getElementById('modal-data').dataset.pSymbol;
@@ -2029,6 +2234,160 @@
                 currentDepthIsIndex = false;
             });
 
+            let lowerLimit = 0;
+            let upperLimit = 0;
+
+            // Helper to calculate total value
+            function calculateTotal() {
+                const quantityInput = document.getElementById('order-quantity');
+                const priceInput = document.getElementById('order-price');
+                const totalValueInput = document.getElementById('order-total-value');
+                if (!quantityInput || !totalValueInput) return;
+                
+                const quantity = parseInt(quantityInput.value) || 0;
+                const orderType = document.getElementById('order-type').value;
+                let price = 0;
+                
+                if (orderType === 'MKT') {
+                    price = lastActiveOrderLtp || 0;
+                } else {
+                    price = parseFloat(priceInput.value) || 0;
+                }
+                
+                const total = quantity * price;
+                totalValueInput.textContent = `₹${total.toFixed(2)}`;
+            }
+            
+            // Helper to validate quantity
+            function validateQuantity() {
+                const quantityInput = document.getElementById('order-quantity');
+                const modalData = document.getElementById('modal-data').dataset;
+                const lLotSize = parseInt(modalData.lLotSize) || 1;
+                if (!quantityInput) return false;
+                const quantity = parseInt(quantityInput.value);
+                if (quantity % lLotSize !== 0) {
+                    quantityInput.setCustomValidity(`Quantity must be in multiples of ${lLotSize}`);
+                    return false;
+                }
+                quantityInput.setCustomValidity('');
+                return true;
+            }
+            
+            // Helper to test if value is an exact multiple of tick size
+            function isMultipleOfTickSize(value, tickSize) {
+                const valueText = value.toString();
+                const tickText = tickSize.toString();
+                const valueDecimals = valueText.includes('.') ? valueText.split('.')[1].length : 0;
+                const tickDecimals = tickText.includes('.') ? tickText.split('.')[1].length : 0;
+                const scale = Math.pow(10, Math.max(valueDecimals, tickDecimals));
+                const intValue = Math.round(value * scale);
+                const intTick = Math.round(tickSize * scale);
+                return intValue % intTick === 0;
+            }
+
+            // Helper to validate price
+            function validatePrice() {
+                const priceInput = document.getElementById('order-price');
+                const orderTypeSelect = document.getElementById('order-type');
+                const modalData = document.getElementById('modal-data').dataset;
+                const dTickSize = parseFloat(modalData.dTickSize) || 0.05;
+
+                if (!priceInput || !orderTypeSelect) return false;
+                if (orderTypeSelect.value === 'MKT') {
+                    priceInput.setCustomValidity('');
+                    return true;
+                }
+
+                const price = parseFloat(priceInput.value);
+                if (isNaN(price) || price <= 0) {
+                    priceInput.setCustomValidity('Price must be greater than 0');
+                    return false;
+                }
+
+                if (!isMultipleOfTickSize(price, dTickSize)) {
+                    priceInput.setCustomValidity(`Price must be a multiple of tick size (${dTickSize})`);
+                    return false;
+                }
+
+                if (lowerLimit > 0 && price < lowerLimit) {
+                    priceInput.setCustomValidity(`Price must be at least ₹${lowerLimit.toFixed(2)} (Lower Circuit)`);
+                    return false;
+                }
+
+                if (upperLimit > 0 && price > upperLimit) {
+                    priceInput.setCustomValidity(`Price must not exceed ₹${upperLimit.toFixed(2)} (Upper Circuit)`);
+                    return false;
+                }
+
+                priceInput.setCustomValidity('');
+                return true;
+            }
+
+            // --- Modern UI Sync Helpers ---
+            function syncSide(side) {
+                const transSelect = document.getElementById('transaction-type');
+                const header = document.getElementById('trade-modal-header');
+                const buyBtn = document.getElementById('btn-side-buy');
+                const sellBtn = document.getElementById('btn-side-sell');
+                const submitBtn = document.getElementById('submit-order-btn');
+                const estLabel = document.getElementById('est-value-label');
+                
+                if (!transSelect || !header) return;
+                transSelect.value = side;
+                
+                if (side === 'B') {
+                    header.className = 'modal-header trade-header-buy';
+                    buyBtn.classList.add('active-buy');
+                    sellBtn.classList.remove('active-sell');
+                    submitBtn.className = 'btn btn-success btn-place-order px-4 shadow-sm';
+                    submitBtn.textContent = 'BUY';
+                    if (estLabel) estLabel.textContent = 'Est. Payable';
+                } else {
+                    header.className = 'modal-header trade-header-sell';
+                    sellBtn.classList.add('active-sell');
+                    buyBtn.classList.remove('active-buy');
+                    submitBtn.className = 'btn btn-danger btn-place-order px-4 shadow-sm';
+                    submitBtn.textContent = 'SELL';
+                    if (estLabel) estLabel.textContent = 'Est. Receivable';
+                }
+            }
+
+            function syncOrderType(type) {
+                const typeSelect = document.getElementById('order-type');
+                const priceInput = document.getElementById('order-price');
+                const buttons = document.querySelectorAll('#order-type-segmented .btn-toggle');
+                
+                if (!typeSelect || !priceInput) return;
+                typeSelect.value = type;
+                buttons.forEach(btn => {
+                    if (btn.dataset.value === type) btn.classList.add('active-neutral');
+                    else btn.classList.remove('active-neutral');
+                });
+                
+                if (type === 'MKT') {
+                    priceInput.disabled = true;
+                    priceInput.required = false;
+                    priceInput.value = '';
+                } else {
+                    priceInput.disabled = false;
+                    priceInput.required = true;
+                }
+                validatePrice();
+                calculateTotal();
+            }
+
+            function syncProductType(type) {
+                const prodSelect = document.getElementById('order-product-type');
+                const buttons = document.querySelectorAll('#product-type-segmented .btn-toggle');
+                
+                if (!prodSelect) return;
+                prodSelect.value = type;
+                buttons.forEach(btn => {
+                    if (btn.dataset.value === type) btn.classList.add('active-neutral');
+                    else btn.classList.remove('active-neutral');
+                });
+            }
+
             // Refactor order placement logic into a function
             function handlePlaceOrderTrigger() {
                 const scripName = document.getElementById('modal-data').dataset.displayName;
@@ -2039,8 +2398,9 @@
                 const pOptionType = document.getElementById('modal-data').dataset.pOptionType || '-';
                 const lLotSize = parseInt(document.getElementById('modal-data').dataset.lLotSize) || 1;
                 const dTickSize = parseFloat(document.getElementById('modal-data').dataset.dTickSize) || 0.05;
-                let lowerLimit = 0;
-                let upperLimit = 0;
+                
+                lowerLimit = 0;
+                upperLimit = 0;
                 
                 if (!pSymbol || !pTrdSymbol || !pExchSeg) {
                     showNotification('Unable to place order: missing symbol information', 'danger');
@@ -2060,142 +2420,6 @@
                 const productSegmented = document.getElementById('product-type-segmented');
                 const productSelect = document.getElementById('order-product-type');
                 
-                // Helper to calculate total value
-                function calculateTotal() {
-                    if (!quantityInput || !totalValueInput) return;
-                    const quantity = parseInt(quantityInput.value) || 0;
-                    const orderType = document.getElementById('order-type').value;
-                    let price = 0;
-                    
-                    if (orderType === 'MKT') {
-                        price = lastActiveOrderLtp || 0;
-                    } else {
-                        price = parseFloat(priceInput.value) || 0;
-                    }
-                    
-                    const total = quantity * price;
-                    totalValueInput.textContent = `₹${total.toFixed(2)}`;
-                }
-                
-                // Helper to validate quantity
-                function validateQuantity() {
-                    if (!quantityInput) return false;
-                    const quantity = parseInt(quantityInput.value);
-                    if (quantity % lLotSize !== 0) {
-                        quantityInput.setCustomValidity(`Quantity must be in multiples of ${lLotSize}`);
-                        return false;
-                    }
-                    quantityInput.setCustomValidity('');
-                    return true;
-                }
-                
-                // Helper to test if value is an exact multiple of tick size
-                function isMultipleOfTickSize(value, tickSize) {
-                    const valueText = value.toString();
-                    const tickText = tickSize.toString();
-                    const valueDecimals = valueText.includes('.') ? valueText.split('.')[1].length : 0;
-                    const tickDecimals = tickText.includes('.') ? tickText.split('.')[1].length : 0;
-                    const scale = Math.pow(10, Math.max(valueDecimals, tickDecimals));
-                    const intValue = Math.round(value * scale);
-                    const intTick = Math.round(tickSize * scale);
-                    return intValue % intTick === 0;
-                }
-
-                // Helper to validate price
-                function validatePrice() {
-                    if (!priceInput || !orderTypeSelect) return false;
-                    if (orderTypeSelect.value === 'MKT') {
-                        priceInput.setCustomValidity('');
-                        return true;
-                    }
-
-                    const price = parseFloat(priceInput.value);
-                    if (isNaN(price) || price <= 0) {
-                        priceInput.setCustomValidity('Please enter a valid price.');
-                        return false;
-                    }
-
-                    if (!isMultipleOfTickSize(price, dTickSize)) {
-                        priceInput.setCustomValidity(`Price must be in multiples of ${dTickSize}`);
-                        return false;
-                    }
-
-                    // Range validation
-                    if (lowerLimit > 0 && price < lowerLimit) {
-                        priceInput.setCustomValidity(`Price must at least ₹${lowerLimit.toFixed(2)} (Lower Circuit)`);
-                        return false;
-                    }
-                    if (upperLimit > 0 && price > upperLimit) {
-                        priceInput.setCustomValidity(`Price must not exceed ₹${upperLimit.toFixed(2)} (Upper Circuit)`);
-                        return false;
-                    }
-
-                    priceInput.setCustomValidity('');
-                    return true;
-                }
-                
-                // --- Modern UI Sync Helpers ---
-                function syncSide(side) {
-                    const transSelect = document.getElementById('transaction-type');
-                    const header = document.getElementById('trade-modal-header');
-                    const buyBtn = document.getElementById('btn-side-buy');
-                    const sellBtn = document.getElementById('btn-side-sell');
-                    const submitBtn = document.getElementById('submit-order-btn');
-                    const estLabel = document.getElementById('est-value-label');
-                    
-                    transSelect.value = side;
-                    
-                    if (side === 'B') {
-                        header.className = 'modal-header trade-header-buy';
-                        buyBtn.classList.add('active-buy');
-                        sellBtn.classList.remove('active-sell');
-                        submitBtn.className = 'btn btn-success btn-place-order px-4 shadow-sm';
-                        submitBtn.textContent = 'BUY';
-                        if (estLabel) estLabel.textContent = 'Est. Payable';
-                    } else {
-                        header.className = 'modal-header trade-header-sell';
-                        sellBtn.classList.add('active-sell');
-                        buyBtn.classList.remove('active-buy');
-                        submitBtn.className = 'btn btn-danger btn-place-order px-4 shadow-sm';
-                        submitBtn.textContent = 'SELL';
-                        if (estLabel) estLabel.textContent = 'Est. Receivable';
-                    }
-                }
-
-                function syncOrderType(type) {
-                    const typeSelect = document.getElementById('order-type');
-                    const priceInput = document.getElementById('order-price');
-                    const buttons = document.querySelectorAll('#order-type-segmented .btn-toggle');
-                    
-                    typeSelect.value = type;
-                    buttons.forEach(btn => {
-                        if (btn.dataset.value === type) btn.classList.add('active-neutral');
-                        else btn.classList.remove('active-neutral');
-                    });
-                    
-                    if (type === 'MKT') {
-                        priceInput.disabled = true;
-                        priceInput.required = false;
-                        priceInput.value = '';
-                    } else {
-                        priceInput.disabled = false;
-                        priceInput.required = true;
-                    }
-                    validatePrice();
-                    calculateTotal();
-                }
-
-                function syncProductType(type) {
-                    const prodSelect = document.getElementById('order-product-type');
-                    const buttons = document.querySelectorAll('#product-type-segmented .btn-toggle');
-                    
-                    prodSelect.value = type;
-                    buttons.forEach(btn => {
-                        if (btn.dataset.value === type) btn.classList.add('active-neutral');
-                        else btn.classList.remove('active-neutral');
-                    });
-                }
-
                 // --- End Sync Helpers ---
 
                 // Determine product type options
@@ -2896,6 +3120,18 @@
                     tradeSocket.send(JSON.stringify(subPayload));
                 }
             };
+
+            function openPlaceOrderModal(scripName, pSymbol, pExchSeg, pTrdSymbol, pOptionType, lLotSize, dTickSize, isIndex) {
+                const modalData = document.getElementById('modal-data').dataset;
+                modalData.pSymbol = pSymbol;
+                modalData.pExchSeg = pExchSeg;
+                modalData.pTrdSymbol = pTrdSymbol;
+                modalData.displayName = scripName;
+                modalData.lLotSize = lLotSize;
+                modalData.dTickSize = dTickSize;
+                modalData.isIndex = isIndex;
+                handlePlaceOrderTrigger();
+            }
 
             window.openTradeFromOC = function(pSymbol, pExchSeg, pTrdSymbol, displayName, lLotSize, dTickSize) {
                 // Update modal-data with the option's data
