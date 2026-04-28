@@ -94,6 +94,24 @@ def get_basket_ajax(request):
             logger.error(f"DuckDB error in get_basket: {e}")
             metadata = {}
 
+        # Fetch real-time circuit limits if SDK is active
+        quotes_data = {}
+        try:
+            api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+            if api.get_cached_session():
+                instrument_tokens = [{"instrument_token": o.instrument_token, "exchange_segment": o.exchange_segment} for o in orders]
+                quotes = api.quotes(instrument_tokens=instrument_tokens)
+                if isinstance(quotes, list):
+                    for q in quotes:
+                        tkn = str(q.get('instrumentToken'))
+                        quotes_data[tkn] = {
+                            'lower_circuit': q.get('low_price_range'),
+                            'upper_circuit': q.get('high_price_range'),
+                            'ltp': q.get('ltp')
+                        }
+        except Exception as e:
+            logger.warning(f"Failed to fetch quotes for basket: {e}")
+
         for o in orders:
             item = {
                 'id': o.id,
@@ -122,6 +140,13 @@ def get_basket_ajax(request):
             item['pScripRefKey'] = meta.get('pScripRefKey', '')
             item['pOptionType'] = meta.get('pOptionType', '')
             item['strike_price'] = float(meta.get('dStrikePrice') or 0)
+
+            # Add quote data (circuits)
+            q_data = quotes_data.get(str(o.instrument_token), {})
+            item['lower_circuit'] = q_data.get('lower_circuit')
+            item['upper_circuit'] = q_data.get('upper_circuit')
+            item['last_price'] = q_data.get('ltp')
+            
             basket_data.append(item)
             
     return JsonResponse({'status': 'success', 'basket': basket_data})

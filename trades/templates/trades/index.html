@@ -498,6 +498,21 @@
         .basket-type-stock { background: #ebfbee; color: #2b8a3e; border: 1px solid #b2f2bb; }
         .basket-type-index { background: #f8f9fa; color: #495057; border: 1px solid #dee2e6; }
 
+        .basket-item-row.invalid { background-color: #fff5f5; }
+        .basket-item-row.invalid { border-left-color: #fa5252 !important; }
+        .basket-error-badge { 
+            font-size: 0.65rem; 
+            font-weight: 600; 
+            padding: 2px 6px; 
+            border-radius: 4px; 
+            background: #fff5f5; 
+            color: #fa5252; 
+            border: 1px solid #ffa8a8;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
         @keyframes spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -3923,6 +3938,25 @@
 
             const clearBasketBtn = document.getElementById('clear-basket-btn');
             let clearBasketConfirm = false;
+            let basketExecutionState = 'idle'; // 'idle', 'confirming'
+
+            function validateBasketItem(item) {
+                const errors = [];
+                if (item.order_type === 'L') {
+                    const price = parseFloat(item.price);
+                    if (!price || price <= 0) {
+                        errors.push('Price required');
+                    } else {
+                        if (item.lower_circuit && price < parseFloat(item.lower_circuit)) {
+                            errors.push(`Below L: ${item.lower_circuit}`);
+                        }
+                        if (item.upper_circuit && price > parseFloat(item.upper_circuit)) {
+                            errors.push(`Above U: ${item.upper_circuit}`);
+                        }
+                    }
+                }
+                return errors;
+            }
 
             clearBasketBtn.onclick = function() {
                 if (!clearBasketConfirm) {
@@ -3968,10 +4002,19 @@
                 });
             }
 
-            function loadBasketItems() {
+            function loadBasketItems(skipBtnReset = false) {
                 const list = document.getElementById('basket-items-list');
+                const executeBtn = document.getElementById('execute-basket-btn');
                 if (!list) return;
                 
+                if (!skipBtnReset && executeBtn) {
+                    basketExecutionState = 'idle';
+                    executeBtn.innerHTML = '<i class="bi bi-play-fill me-1"></i> Execute All';
+                    executeBtn.classList.remove('btn-warning', 'pulse-animation');
+                    executeBtn.classList.add('btn-primary');
+                    executeBtn.disabled = false;
+                }
+
                 // Hide total margin on refresh
                 const totalContainer = document.getElementById('basket-total-margin-container');
                 if (totalContainer) totalContainer.style.display = 'none';
@@ -3999,15 +4042,20 @@
                                         Your basket is empty.
                                     </li>
                                 `;
+                                if (executeBtn) executeBtn.disabled = true;
                                 return;
                             }
                             
+                            let totalInvalid = 0;
                             const newTokens = [];
                                  basketItems.forEach(item => {
                                     currentBasketTokens.add(item.instrument_token);
                                     newTokens.push({ instrument_token: item.instrument_token, exchange_segment: item.exchange_segment });
                                     
-                                    // Determine type badge logic (similar to search)
+                                    const itemErrors = validateBasketItem(item);
+                                    if (itemErrors.length > 0) totalInvalid++;
+
+                                    // Determine type badge logic
                                     let typeLabel = 'Stock';
                                     let typeClass = 'basket-type-stock';
                                     
@@ -4022,13 +4070,8 @@
                                         }
                                     }
                                     
-                                    if (item.exchange_segment.includes('_cm')) {
-                                        // Simple check for index if needed, but here we usually have pInstType empty for stocks
-                                        // If pInstType is empty and it's CM, it's a stock.
-                                    }
-
                                     const li = document.createElement('li');
-                                    li.className = `list-group-item basket-item-row p-0 border-bottom ${item.transaction_type === 'B' ? 'buy' : 'sell'}`;
+                                    li.className = `list-group-item basket-item-row p-0 border-bottom ${item.transaction_type === 'B' ? 'buy' : 'sell'} ${itemErrors.length > 0 ? 'invalid' : ''}`;
                                     li.dataset.id = item.id;
                                     
                                     const isNSE = item.exchange_segment.includes('nse');
@@ -4049,6 +4092,7 @@
                                                                 <span class="basket-type-badge ${typeClass}">${typeLabel}</span>
                                                                 ${(item.pOptionType && item.pOptionType !== 'XX') ? `<span class="badge bg-secondary-subtle text-secondary-emphasis" style="font-size: 0.6rem; padding: 1px 4px;">${item.pOptionType}</span>` : ''}
                                                                 <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle basket-margin-badge" id="basket-margin-${item.id}" style="font-size: 0.6rem; padding: 1px 4px; display: none;">Margin: ...</span>
+                                                                ${itemErrors.map(err => `<span class="basket-error-badge"><i class="bi bi-exclamation-triangle"></i> ${err}</span>`).join('')}
                                                             </div>
                                                             <span class="fw-bold text-dark fs-6">${item.display_name}</span>
                                                             <div class="basket-ltp-badge badge bg-light text-primary border ms-2" id="basket-ltp-${item.instrument_token}">LTP: ...</div>
@@ -4137,6 +4181,16 @@
                                 `;
                                 list.appendChild(li);
                             });
+                            
+                            if (executeBtn) {
+                                if (totalInvalid > 0) {
+                                    executeBtn.disabled = true;
+                                    executeBtn.title = "Resolve price errors first";
+                                } else {
+                                    executeBtn.disabled = false;
+                                    executeBtn.title = "";
+                                }
+                            }
 
                             // Subscribe to new tokens
                             if (newTokens.length > 0 && tradeSocket.readyState === WebSocket.OPEN) {
@@ -4222,13 +4276,22 @@
                         // BUT we need to update the small labels in the li without closing the panel
                         const li = document.querySelector(`.basket-item-row[data-id="${id}"]`);
                         if (li) {
-                            // Update header side badge (specific class prevents LTP overwrite)
+                            // Re-validate and update styling
+                            const itemErrors = validateBasketItem(updatedData);
+                            if (itemErrors.length > 0) {
+                                li.classList.add('invalid');
+                            } else {
+                                li.classList.remove('invalid');
+                            }
+
+                            // Update header side badge
                             const sideBadge = li.querySelector('.basket-side-badge');
                             if (sideBadge) {
                                 sideBadge.className = `badge basket-side-badge ${updatedData.transaction_type === 'B' ? 'bg-success text-white' : 'bg-danger text-white'}`;
                                 sideBadge.textContent = updatedData.transaction_type === 'B' ? 'BUY' : 'SELL';
                             }
-                            li.className = `list-group-item basket-item-row p-0 border-bottom ${updatedData.transaction_type === 'B' ? 'buy' : 'sell'}`;
+                            li.classList.remove('buy', 'sell');
+                            li.classList.add(updatedData.transaction_type === 'B' ? 'buy' : 'sell');
                             
                             const metaRow = li.querySelector('.basket-meta-labels');
                             metaRow.innerHTML = `
@@ -4236,6 +4299,25 @@
                                 <span><i class="bi bi-tag me-1"></i>${updatedData.order_type === 'MKT' ? 'Market' : "₹" + updatedData.price}</span>
                                 <span><i class="bi bi-box me-1"></i>${updatedData.product_type}</span>
                             `;
+                            
+                            // Update error badges
+                            const headerBadges = li.querySelector('.d-flex.align-items-center.gap-1.mb-1');
+                            if (headerBadges) {
+                                headerBadges.querySelectorAll('.basket-error-badge').forEach(b => b.remove());
+                                itemErrors.forEach(err => {
+                                    const span = document.createElement('span');
+                                    span.className = 'basket-error-badge';
+                                    span.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${err}`;
+                                    headerBadges.appendChild(span);
+                                });
+                            }
+
+                            // Update execute button status
+                            const executeBtn = document.getElementById('execute-basket-btn');
+                            if (executeBtn) {
+                                let anyInvalid = document.querySelectorAll('.basket-item-row.invalid').length > 0;
+                                executeBtn.disabled = anyInvalid;
+                            }
                             
                             // Update ALL toggle buttons in this row's panel
                             li.querySelectorAll('.side-toggle-btn').forEach(btn => btn.classList.remove('active-buy', 'active-sell', 'active-neutral'));
@@ -4390,6 +4472,54 @@
             document.getElementById('execute-basket-btn').onclick = function() {
                 if (basketItems.length === 0) return;
                 
+                // 1. Validation check
+                let hasErrors = false;
+                basketItems.forEach(item => {
+                    if (validateBasketItem(item).length > 0) hasErrors = true;
+                });
+                if (hasErrors) {
+                    showNotification('Please resolve price errors before execution', 'danger');
+                    return;
+                }
+
+                // 2. Multi-step workflow: Reorder & Refresh -> Confirm -> Execute
+                if (basketExecutionState === 'idle') {
+                    const btn = this;
+                    const originalHTML = btn.innerHTML;
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="bi bi-arrow-repeat spin-animation me-1"></i> Processing...';
+                    
+                    fetch('/basket/reorder/', {
+                        method: 'POST',
+                        headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
+                    })
+                    .then(r => r.json())
+                    .then(res => {
+                        if (res.status === 'success') {
+                            loadBasketItems(true); // skipBtnReset = true
+                            setTimeout(() => {
+                                basketExecutionState = 'confirming';
+                                btn.disabled = false;
+                                btn.innerHTML = '<i class="bi bi-check-all me-1"></i> Confirm Execution';
+                                btn.classList.replace('btn-primary', 'btn-warning');
+                                btn.classList.add('pulse-animation');
+                                showNotification('Basket reordered! Please cross-check and Confirm Execution.', 'warning');
+                            }, 600);
+                        } else {
+                            btn.disabled = false;
+                            btn.innerHTML = originalHTML;
+                            showNotification(res.error || 'Reorder failed', 'danger');
+                        }
+                    })
+                    .catch(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = originalHTML;
+                        showNotification('Network error during reorder', 'danger');
+                    });
+                    return;
+                }
+
+                // Final Step: Execute
                 const progressModal = new bootstrap.Modal(document.getElementById('basketProgressModal'));
                 const progressBar = document.getElementById('basket-progress-bar');
                 const logArea = document.getElementById('basket-execution-details');
@@ -4430,19 +4560,24 @@
                         progressBar.className = 'progress-bar bg-success';
                         document.getElementById('basket-progress-title').textContent = 'Basket Executed!';
                         statusText.textContent = result.message;
-                    } else {
-                        progressBar.style.width = ((executed.length / total) * 100) + '%';
-                        progressBar.className = 'progress-bar bg-danger';
-                        document.getElementById('basket-progress-title').textContent = 'Execution Stopped';
+                    } else if (result.status === 'partial_failure') {
+                        progressBar.style.width = '100%';
+                        progressBar.className = 'progress-bar bg-warning';
+                        document.getElementById('basket-progress-title').textContent = 'Partial Execution';
                         statusText.textContent = result.message;
+                    } else {
+                        progressBar.style.width = '100%';
+                        progressBar.className = 'progress-bar bg-danger';
+                        document.getElementById('basket-progress-title').textContent = 'Execution Failed';
+                        statusText.textContent = result.error || result.message;
                     }
-                    
                     finishBtn.style.display = 'block';
-                    refreshBasketBadge();
                 })
                 .catch(err => {
-                    showNotification('Critical error during execution', 'danger');
-                    progressModal.hide();
+                    progressBar.style.width = '100%';
+                    progressBar.className = 'progress-bar bg-danger';
+                    statusText.textContent = 'Error: ' + err.message;
+                    finishBtn.style.display = 'block';
                 });
             };
 
