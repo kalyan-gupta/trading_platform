@@ -51,4 +51,6 @@ urlpatterns = [
     path('basket/update_sequence/', views_basket.update_basket_sequence_ajax, name='update_basket_sequence_ajax'),
     path('basket/update_item/', views_basket.update_basket_item_ajax, name='update_basket_item_ajax'),
     path('basket/execute/', views_basket.execute_basket_ajax, name='execute_basket_ajax'),
+    path('basket/check_margin/', views_basket.check_basket_margin_ajax, name='check_basket_margin_ajax'),
+    path('basket/reorder/', views_basket.reorder_basket_ajax, name='reorder_basket_ajax'),
 ]

@@ -579,6 +579,12 @@
                             <i class="bi bi-info-circle me-1"></i> Drag and drop to reorder execution sequence.
                         </span>
                         <div class="d-flex gap-2">
+                            <button class="btn btn-sm btn-outline-info" id="check-basket-margin-btn">
+                                <i class="bi bi-wallet2 me-1"></i> Check Margin
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" id="reorder-basket-btn">
+                                <i class="bi bi-sort-alpha-down me-1"></i> Reorder
+                            </button>
                             <button class="btn btn-sm btn-outline-secondary" id="refresh-basket-btn">
                                 <i class="bi bi-arrow-clockwise me-1"></i> Refresh
                             </button>
@@ -599,9 +605,15 @@
                     </div>
                 </div>
                 <div class="modal-footer bg-light p-4 border-top-0 d-flex justify-content-between align-items-center">
-                    <div class="text-start">
-                        <div class="text-muted x-small fw-bold text-uppercase" style="font-size: 0.65rem;">Total Orders</div>
-                        <div class="h5 fw-bold text-dark mb-0" id="basket-total-count">0</div>
+                    <div class="text-start d-flex gap-4">
+                        <div>
+                            <div class="text-muted x-small fw-bold text-uppercase" style="font-size: 0.65rem;">Total Orders</div>
+                            <div class="h5 fw-bold text-dark mb-0" id="basket-total-count">0</div>
+                        </div>
+                        <div id="basket-total-margin-container" style="display: none;">
+                            <div class="text-muted x-small fw-bold text-uppercase" style="font-size: 0.65rem;">Total Req. Margin</div>
+                            <div class="h5 fw-bold text-info mb-0" id="basket-total-margin">₹0.00</div>
+                        </div>
                     </div>
                     <div class="d-flex gap-2">
                         <button type="button" class="btn btn-outline-secondary px-4" data-bs-dismiss="modal">Close</button>
@@ -3665,6 +3677,10 @@
                 const list = document.getElementById('basket-items-list');
                 if (!list) return;
                 
+                // Hide total margin on refresh
+                const totalContainer = document.getElementById('basket-total-margin-container');
+                if (totalContainer) totalContainer.style.display = 'none';
+
                 fetch('/basket/get/')
                     .then(response => response.json())
                     .then(data => {
@@ -3737,6 +3753,7 @@
                                                                 <span class="basket-exch-label ${exchClass}">${exchLabel}</span>
                                                                 <span class="basket-type-badge ${typeClass}">${typeLabel}</span>
                                                                 ${(item.pOptionType && item.pOptionType !== 'XX') ? `<span class="badge bg-secondary-subtle text-secondary-emphasis" style="font-size: 0.6rem; padding: 1px 4px;">${item.pOptionType}</span>` : ''}
+                                                                <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle basket-margin-badge" id="basket-margin-${item.id}" style="font-size: 0.6rem; padding: 1px 4px; display: none;">Margin: ...</span>
                                                             </div>
                                                             <span class="fw-bold text-dark fs-6">${item.display_name}</span>
                                                             <div class="basket-ltp-badge badge bg-light text-primary border ms-2" id="basket-ltp-${item.instrument_token}">LTP: ...</div>
@@ -3987,6 +4004,92 @@
                     }
                 });
             }
+
+            // Check Basket Margin handler
+            document.getElementById('check-basket-margin-btn').onclick = function() {
+                const btn = this;
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-hourglass-split me-1 spin-animation"></i> Checking...';
+
+                fetch('/basket/check_margin/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(r => r.json())
+                .then(res => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+
+                    if (res.status === 'success') {
+                        // Update individual badges
+                        for (const [id, margin] of Object.entries(res.margins)) {
+                            const badge = document.getElementById(`basket-margin-${id}`);
+                            if (badge) {
+                                if (margin === "Error") {
+                                    badge.textContent = "Margin: Error";
+                                    badge.className = "badge bg-danger-subtle text-danger-emphasis border border-danger-subtle basket-margin-badge";
+                                } else {
+                                    badge.textContent = `Margin: ₹${parseFloat(margin).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                                    badge.className = "badge bg-info-subtle text-info-emphasis border border-info-subtle basket-margin-badge";
+                                }
+                                badge.style.display = 'inline-block';
+                            }
+                        }
+
+                        // Update total margin in footer
+                        const totalContainer = document.getElementById('basket-total-margin-container');
+                        const totalEl = document.getElementById('basket-total-margin');
+                        if (totalContainer && totalEl) {
+                            totalEl.textContent = `₹${parseFloat(res.total_margin).toLocaleString('en-IN', {minimumFractionDigits: 2})}`;
+                            totalContainer.style.display = 'block';
+                        }
+                    } else {
+                        showNotification(res.error || 'Failed to check margin', 'danger');
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    showNotification('Error checking margin', 'danger');
+                });
+            };
+
+            // Reorder Basket handler
+            document.getElementById('reorder-basket-btn').onclick = function() {
+                const btn = this;
+                const originalText = btn.innerHTML;
+                btn.disabled = true;
+                btn.innerHTML = '<i class="bi bi-hourglass-split me-1 spin-animation"></i> Sorting...';
+
+                fetch('/basket/reorder/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    }
+                })
+                .then(r => r.json())
+                .then(res => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+
+                    if (res.status === 'success') {
+                        showNotification(res.message, 'success');
+                        loadBasketItems(); // Refresh the list
+                    } else {
+                        showNotification(res.error || 'Failed to reorder basket', 'danger');
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                    showNotification('Error reordering basket', 'danger');
+                });
+            };
 
             // Execute Basket handler
             document.getElementById('execute-basket-btn').onclick = function() {

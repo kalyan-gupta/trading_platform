@@ -1,10 +1,12 @@
 from django.http import JsonResponse
 from django.db.models import Max
+from django.db import transaction
 from .models import BasketOrder
 from .decorators import ajax_login_required
 from .kotak_neo_api import KotakNeoAPI
 import json
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -252,3 +254,125 @@ def execute_basket_ajax(request):
         'message': f"All {len(results)} orders in basket executed successfully.",
         'results': results
     })
+
+@ajax_login_required
+def check_basket_margin_ajax(request):
+    """Calculate required margin for all items in the basket."""
+    orders = BasketOrder.objects.filter(user=request.user).order_by('sort_order')
+    if not orders.exists():
+        return JsonResponse({'error': 'Basket is empty.'}, status=400)
+    
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+    except Exception as e:
+        return JsonResponse({'error': f"Failed to initialize API: {str(e)}"}, status=400)
+    
+    margins = {}
+    total_margin = 0
+    
+    for order in orders:
+        try:
+            # Note: We use price=0 for MKT orders as per check_margin_ajax in views.py
+            margin_response = api.margin_required(
+                instrument_token=order.instrument_token,
+                quantity=order.quantity,
+                price=order.price if order.order_type == 'L' else 0,
+                transaction_type=order.transaction_type,
+                exchange_segment=order.exchange_segment,
+                product=order.product_type,
+                order_type=order.order_type
+            )
+            
+            if isinstance(margin_response, dict) and 'data' in margin_response:
+                data = margin_response.get('data')
+                # Data can be a list or a dict depending on the exact response
+                if isinstance(data, list) and len(data) > 0:
+                    item_data = data[0]
+                elif isinstance(data, dict):
+                    item_data = data
+                else:
+                    item_data = {}
+                
+                # reqdMrgn or ordMrgn are typical fields in Neo API for required margin
+                m_val = float(item_data.get('reqdMrgn') or item_data.get('ordMrgn') or 0)
+                margins[order.id] = m_val
+                total_margin += m_val
+            else:
+                margins[order.id] = "Error"
+        except Exception as e:
+            logger.error(f"Error checking margin for basket item {order.id}: {e}")
+            margins[order.id] = "Error"
+            
+    return JsonResponse({
+        'status': 'success', 
+        'margins': margins, 
+        'total_margin': total_margin
+    })
+
+@ajax_login_required
+def reorder_basket_ajax(request):
+    """Automatically reorder basket items: Buy before Sell for hedges."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'Only POST requests are allowed'}, status=405)
+    
+    orders = list(BasketOrder.objects.filter(user=request.user))
+    if not orders:
+        return JsonResponse({'status': 'success', 'message': 'Basket is empty.'})
+
+    # Fetch metadata for sorting (expiry, strike, etc.)
+    from .views import _duckdb_connection, _duckdb_lock
+    tokens = [o.instrument_token for o in orders]
+    token_str = ", ".join([f"'{t}'" for t in tokens])
+    
+    try:
+        with _duckdb_lock:
+            # Extract underlying from pScripRefKey or pSymbolName
+            metadata = _duckdb_connection.execute(f"""
+                SELECT CAST(pSymbol AS VARCHAR) as pSymbol, pScripRefKey, pSymbolName, pOptionType,
+                CAST(COALESCE("dStrikePrice;", 0) AS DECIMAL) / 100 as dStrikePrice,
+                try_strptime(regexp_extract(COALESCE(pScripRefKey, ''), '(\\d{{2}}[A-Z]{{3}}\\d{{2}})', 1), '%d%b%y') as expire_date
+                FROM active_market_data 
+                WHERE CAST(pSymbol AS VARCHAR) IN ({token_str})
+            """).df().set_index('pSymbol').to_dict('index')
+    except Exception as e:
+        logger.error(f"DuckDB error in reorder_basket: {e}")
+        metadata = {}
+
+    def sort_key(order):
+        meta = metadata.get(order.instrument_token, {})
+        
+        # 1. Underlying (e.g. NIFTY, BANKNIFTY)
+        # We can try to extract the first few non-digit characters from pScripRefKey
+        ref_key = meta.get('pScripRefKey', '')
+        # Simple heuristic: take characters before the first digit
+        match = re.match(r'^([A-Z]+)', ref_key)
+        underlying = match.group(1) if match else (meta.get('pSymbolName') or order.trading_symbol)
+        
+        # 2. Expiry date
+        expiry = meta.get('expire_date')
+        expiry_val = expiry.to_pydatetime() if hasattr(expiry, 'to_pydatetime') else (expiry or "")
+        
+        # 3. Transaction type (Buy 'B' = 0, Sell 'S' = 1)
+        side_priority = 0 if order.transaction_type == 'B' else 1
+        
+        # 4. Strike Price
+        strike = float(meta.get('dStrikePrice') or 0)
+        
+        # 5. Option Type (CE before PE if same strike?)
+        opt_type = meta.get('pOptionType', '')
+        opt_priority = 0 if opt_type == 'CE' else 1
+        
+        return (underlying, expiry_val, side_priority, strike, opt_priority)
+
+    orders.sort(key=sort_key)
+    
+    # Update sort_order in DB
+    try:
+        with transaction.atomic():
+            for i, order in enumerate(orders):
+                order.sort_order = i + 1
+                order.save()
+    except Exception as e:
+        return JsonResponse({'error': f"Failed to save new sequence: {str(e)}"}, status=500)
+        
+    return JsonResponse({'status': 'success', 'message': 'Basket reordered successfully (Buy before Sell).'})
