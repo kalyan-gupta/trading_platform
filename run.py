@@ -78,13 +78,16 @@ def run():
         venv_bin = os.path.join(os.getcwd(), 'venv', 'bin' if os.name != 'nt' else 'Scripts')
         daphne_bin = os.path.join(venv_bin, 'daphne' if os.name != 'nt' else 'daphne.exe')
         
+        env = os.environ.copy()
+        env['DJANGO_SETTINGS_MODULE'] = 'trading_platform.settings'
+
         # If daphne is not found in bin, fallback to 'python -m daphne'
         if not os.path.exists(daphne_bin):
             command = [sys.executable, "-m", "daphne", "-b", "0.0.0.0", "-p", "8000", "trading_platform.asgi:application"]
         else:
             command = [daphne_bin, "-b", "0.0.0.0", "-p", "8000", "trading_platform.asgi:application"]
             
-        subprocess.run(command, check=True)
+        subprocess.run(command, env=env, check=True)
         
     except KeyboardInterrupt:
         print("\n👋 Shutting down...")
