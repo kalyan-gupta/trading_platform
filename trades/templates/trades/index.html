@@ -671,6 +671,33 @@
         </div>
     </div>
 
+    <!-- Automated Scrip Refresh Modal -->
+    <div class="modal fade" id="scripRefreshModal" tabindex="-1" data-bs-backdrop="static" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-body p-4 text-center">
+                    <div class="mb-4">
+                        <div class="spinner-grow text-primary" role="status" style="width: 3rem; height: 3rem;">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                    <h5 class="fw-bold mb-2">🔄 Maintenance in Progress</h5>
+                    <p class="text-muted mb-4" id="scrip-refresh-status">Checking for latest market instrument data...</p>
+                    
+                    <div class="progress mb-3" style="height: 10px; border-radius: 5px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" id="scrip-refresh-progress" role="progressbar" style="width: 5%"></div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between x-small text-muted px-1">
+                        <span id="scrip-step-1" class="fw-bold">1. Download</span>
+                        <span id="scrip-step-2">2. Cache Update</span>
+                        <span id="scrip-step-3">3. Finalizing</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <main class="container py-4">
         <div id="notification-area" class="position-fixed top-0 end-0 p-3" style="z-index: 9999"></div>
 
@@ -4902,6 +4929,93 @@
                 }, true);
             });
         });
+    </script>
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Automated Scrip Refresh Logic
+        const scripModalElem = document.getElementById('scripRefreshModal');
+        if (!scripModalElem) return; // Guard for pages that don't have the modal
+        
+        const scripModal = new bootstrap.Modal(scripModalElem);
+        const statusText = document.getElementById('scrip-refresh-status');
+        const progressBar = document.getElementById('scrip-refresh-progress');
+        const step1 = document.getElementById('scrip-step-1');
+        const step2 = document.getElementById('scrip-step-2');
+        const step3 = document.getElementById('scrip-step-3');
+
+        // Initial check
+        fetch('/check_scrip_status/')
+            .then(response => response.json())
+            .then(data => {
+                if (data.needs_refresh) {
+                    console.log("Scrip refresh needed:", data.reason);
+                    scripModal.show();
+                    startScripRefreshFlow();
+                }
+            })
+            .catch(err => console.error("Error checking scrip status:", err));
+
+        async function startScripRefreshFlow() {
+            try {
+                // Step 1: Download
+                statusText.innerText = "Downloading latest scrip master files from Kotak Neo...";
+                progressBar.style.width = "30%";
+                
+                const downloadResponse = await fetch('/refresh_scrip_master/');
+                const downloadData = await downloadResponse.json();
+                
+                if (downloadData.status !== 'success') {
+                    throw new Error(downloadData.message || "Download failed");
+                }
+                
+                step1.classList.remove('fw-bold', 'text-primary');
+                step1.classList.add('text-success');
+                step1.innerHTML = '1. Download <i class="bi bi-check-circle-fill"></i>';
+                step2.classList.add('fw-bold', 'text-primary');
+                
+                // Step 2: Cache
+                statusText.innerText = "Processing files and updating local scrip cache...";
+                progressBar.style.width = "70%";
+                
+                const cacheResponse = await fetch('/refresh_scrip_cache/');
+                const cacheData = await cacheResponse.json();
+                
+                if (cacheData.status !== 'success') {
+                    throw new Error(cacheData.message || "Cache update failed");
+                }
+                
+                step2.classList.remove('fw-bold', 'text-primary');
+                step2.classList.add('text-success');
+                step2.innerHTML = '2. Cache Update <i class="bi bi-check-circle-fill"></i>';
+                step3.classList.add('fw-bold', 'text-primary');
+                
+                // Step 3: Finalizing
+                statusText.innerText = "Finishing up...";
+                progressBar.style.width = "100%";
+                
+                setTimeout(() => {
+                    scripModal.hide();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Scrip master and cache updated successfully for today.', 'success');
+                    }
+                }, 1000);
+                
+            } catch (error) {
+                console.error("Scrip refresh error:", error);
+                statusText.innerHTML = `<span class="text-danger">Error: ${error.message}</span>`;
+                progressBar.classList.remove('bg-primary');
+                progressBar.classList.add('bg-danger');
+                
+                // Add a close button if it fails
+                const modalBody = document.querySelector('#scripRefreshModal .modal-body');
+                const closeBtn = document.createElement('button');
+                closeBtn.className = 'btn btn-outline-secondary btn-sm mt-3';
+                closeBtn.innerText = 'Close and proceed anyway';
+                closeBtn.onclick = () => scripModal.hide();
+                modalBody.appendChild(closeBtn);
+            }
+        }
+    });
     </script>
 </body>
 </html>
