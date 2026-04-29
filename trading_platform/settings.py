@@ -58,9 +58,9 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
     'trading_platform.middleware.RequestLoggingMiddleware',
     'trading_platform.middleware.RestartDetectionMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'trades.auth_middleware.SessionExpiryMiddleware',
 ]
