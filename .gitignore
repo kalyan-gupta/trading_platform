@@ -24,3 +24,4 @@ app_activity.log
 git_ignore/
 staticfiles/
 .venv/
+reference.txt
