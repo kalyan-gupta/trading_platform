@@ -108,10 +108,11 @@ The terminal needs your Kotak Neo API credentials to interact with the exchange.
 - Enter the **TOTP code** from your authenticator app to establish a secure connection with Kotak Neo.
 - **Note**: For security, SDK sessions expire automatically. You will need to re-authenticate if you have been inactive or if the session interval (default 30 min) has passed.
 
-### 4. 🔄 Daily Maintenance: Refresh Scrip Master
-Instrument tokens and strike prices change frequently. **You must refresh the Scrip Master data every day before you start trading.**
-- Click the **"Refresh Scrip Master"** button on the dashboard.
-- This will download the latest instrument files from the Kotak Neo server and update your local DuckDB cache.
+### 4. 🔄 Automated Maintenance: Scrip Master & Cache
+Instrument tokens and strike prices change frequently. The terminal now **automatically handles daily maintenance** for you:
+- **Auto-Refresh**: Upon login, the system checks if your scrip data is outdated (cutoff 8:00 AM) or if the cache is empty.
+- **Background Loading**: A non-intrusive modal will appear to guide you through the download and initialization process if required.
+- **Manual Control**: You can still trigger a manual refresh from the dashboard menu if you suspect data inconsistencies.
 
 ---
 
@@ -153,6 +154,19 @@ Once the server is running:
 - **Never** commit your `.env` file or `db.sqlite3` to public repositories.
 - Keep your **SECRET_KEY** and **ENCRYPTION_KEY** private.
 - Regularly update the Scrip Master data to ensure accurate trading tokens.
+
+---
+
+## ⚖️ License & Third-Party Acknowledgments
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+It utilizes several high-quality open-source libraries, including but not limited to:
+- **Django** (BSD-3-Clause)
+- **Django Channels & Daphne** (BSD-3-Clause)
+- **DuckDB** (MIT)
+- **Kotak Neo API SDK** (Proprietary/Public SDK provided by Kotak Securities)
+- **Python-Decouple, Requests, WebSockets** (MIT/Apache/BSD)
 
 ---
 
