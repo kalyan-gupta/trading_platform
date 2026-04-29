@@ -227,9 +227,11 @@
                     </button>
                 </form>
                 
+                {% if platform_settings.enable_user_registration %}
                 <div class="signup-link">
                     Don't have an account? <a href="{% url 'register' %}">Sign up here</a>
                 </div>
+                {% endif %}
             </div>
         </div>
     </div>

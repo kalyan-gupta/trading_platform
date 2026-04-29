@@ -165,6 +165,8 @@ class PlatformSettings(models.Model):
     sdk_timeout_enabled = models.BooleanField(default=True, help_text="Enable mandatory SDK re-authentication after duration")
     sdk_timeout_seconds = models.IntegerField(default=1800, help_text="SDK session timeout in seconds (default 30 min)")
 
+    enable_user_registration = models.BooleanField(default=True, help_text="Allow new users to register via the signup button")
+
     class Meta:
         verbose_name = "Platform Settings"
         verbose_name_plural = "Platform Settings"

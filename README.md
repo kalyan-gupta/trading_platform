@@ -48,6 +48,32 @@ The terminal includes a `run.py` script that handles the entire setup process fo
 
 ---
 
+### 👤 Zero-Config Admin Setup
+For a seamless onboarding experience:
+- If no users exist, the system allows you to register the **first account** as an administrator.
+- The first registrant is automatically promoted to **Superuser** status.
+- OTP verification is skipped for the first user to allow immediate access for system configuration (SMTP, API keys, etc.).
+
+---
+
+### 🔧 Administrative Commands
+You can perform advanced administrative tasks using the standard Django management interface:
+
+- **Reset a User's Password**:
+  ```bash
+  python manage.py changepassword <username>
+  ```
+- **Create a Superuser Manually**:
+  ```bash
+  python manage.py createsuperuser
+  ```
+- **Promote an Existing User**:
+  ```bash
+  python manage.py makemysuperuser <username>
+  ```
+
+---
+
 ### 3. Manual Setup (Optional)
 If you prefer to manage the environment yourself:
 - Create and activate your venv.
@@ -98,8 +124,8 @@ Once the server is running:
 
 ## 🛡️ Security & Best Practices
 
-- **Never** commit `credentials.py` or `db.sqlite3` to public repositories.
-- Keep your `SECRET_KEY` private in production.
+- **Never** commit your `.env` file or `db.sqlite3` to public repositories.
+- Keep your **SECRET_KEY** and **ENCRYPTION_KEY** private.
 - Regularly update the Scrip Master data to ensure accurate trading tokens.
 
 ---

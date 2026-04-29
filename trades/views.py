@@ -146,7 +146,8 @@ def login_view(request):
     context = {
         'form': form,
         'expired': request.GET.get('expired') == 'true',
-        'smtp_settings': SMTPSettings.get_settings()
+        'smtp_settings': SMTPSettings.get_settings(),
+        'platform_settings': PlatformSettings.get_settings()
     }
     return render(request, 'trades/login.html', context)
 
@@ -156,12 +157,21 @@ def register_view(request):
     if request.user.is_authenticated:
         return redirect('index')
     
+    # Check if this is the first user ever registering
+    is_first_user = not User.objects.exists()
+    
+    platform_settings = PlatformSettings.get_settings()
+    if not is_first_user and not platform_settings.enable_user_registration:
+        messages.error(request, "User registration is currently disabled by the administrator.")
+        return redirect('login')
+    
     if request.method == 'POST':
         form = RegistrationForm(request.POST)
         if form.is_valid():
             settings_obj = SMTPSettings.get_settings()
             
-            if settings_obj.enable_registration_otp:
+            # If first user, skip OTP to ensure they can gain access without SMTP setup
+            if settings_obj.enable_registration_otp and not is_first_user:
                 user = form.save(commit=False)
                 user.is_active = False  # Deactivate until verified
                 user.save()
@@ -203,9 +213,20 @@ def register_view(request):
                     
                 return redirect('otp_verify')
             else:
-                user = form.save()
-                logger.info(f"New user registered: '{user.username}'.")
-                messages.success(request, "Registration successful! Please configure your Neo API credentials.")
+                user = form.save(commit=False)
+                if is_first_user:
+                    user.is_superuser = True
+                    user.is_staff = True
+                    user.is_active = True
+                    
+                user.save()
+                
+                if is_first_user:
+                    logger.info(f"First user registered and promoted to superuser: '{user.username}'.")
+                    messages.success(request, f"Welcome, {user.username}! As the first user, you have been granted administrative privileges.")
+                else:
+                    logger.info(f"New user registered: '{user.username}'.")
+                    messages.success(request, "Registration successful! Please configure your Neo API credentials.")
                 
                 # Redirect to credentials setup
                 login(request, user)
@@ -499,6 +520,7 @@ def admin_settings_view(request):
         # Handle Platform Settings
         platform_settings.session_timeout_enabled = request.POST.get('session_timeout_enabled') == 'on'
         platform_settings.sdk_timeout_enabled = request.POST.get('sdk_timeout_enabled') == 'on'
+        platform_settings.enable_user_registration = request.POST.get('enable_user_registration') == 'on'
         try:
             platform_settings.session_timeout_seconds = int(request.POST.get('session_timeout_seconds', 300))
             platform_settings.sdk_timeout_seconds = int(request.POST.get('sdk_timeout_seconds', 1800))
