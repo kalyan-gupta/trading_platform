@@ -39,8 +39,10 @@ class RequestLoggingMiddleware:
         if request.method in ['POST', 'PUT', 'PATCH']:
             try:
                 post_params = dict(request.POST.items())
-                if 'password' in post_params:
-                    post_params['password'] = '***'
+                sensitive_keys = ['password', 'password1', 'password2', 'mpin', 'consumer_key', 'host_password', 'new_password', 'current_password', 'totp']
+                for key in sensitive_keys:
+                    if key in post_params:
+                        post_params[key] = '***'
             except Exception:
                 pass # Don't crash if body is unparseable raw json
                 
