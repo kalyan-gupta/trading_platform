@@ -25,6 +25,76 @@ def _quote_sql_string(value):
     return "'" + value.replace("'", "''") + "'"
 
 
+SCRIP_GROUP_MEANINGS = {
+    'bse_cm': {
+        'A': 'Active',
+        'B': 'Large/Mid Cap',
+        'E': 'ETF',
+        'F': 'Debt Market',
+        'G': 'G-Sec',
+        'IF': 'Inst-Debt',
+        'M': 'SME',
+        'MS': 'SME',
+        'MT': 'SME-T2T',
+        'P': 'Penny/Surv',
+        'R': 'Rights',
+        'T': 'T2T',
+        'TS': 'SME-T2T',
+        'X': 'BSE-Only',
+        'XT': 'BSE-Only T2T',
+        'Y': 'Debt',
+        'Z': 'Non-Compliant',
+        'ZP': 'Non-Compliant'
+    },
+    'nse_cm': {
+        'EQ': 'Equity',
+        'BE': 'T2T',
+        'BL': 'Block Deal',
+        'BT': 'Physical',
+        'MF': 'Mutual Fund',
+        'SM': 'SME',
+        'ST': 'SME-T2T',
+        'TB': 'T-Bill',
+        'GB': 'G-Bond',
+        'GS': 'G-Sec',
+        'IV': 'InvIT',
+        'RR': 'Rights',
+        'DR': 'Depository Rec',
+        'W1': 'Warrant',
+        'SF': 'Security Rec',
+        'SG': 'Gold Bond',
+        'BZ': 'Surveillance',
+        'SZ': 'SME-Surv',
+        'IT': 'InvIT',
+        'D1': 'Debt',
+        'E1': 'ETF',
+        'P1': 'Preference'
+    }
+}
+
+
+def get_p_group_description(exch, group):
+    if not group or group == 'XX':
+        return ""
+    
+    exch_lower = exch.lower() if exch else ""
+    if exch_lower not in ('nse_cm', 'bse_cm'):
+        return ""
+    
+    meaning = SCRIP_GROUP_MEANINGS.get(exch_lower, {}).get(group)
+    if meaning:
+        return meaning
+    
+    # Pattern matching for NSE series
+    if exch_lower == 'nse_cm':
+        if group.startswith(('N', 'Y', 'Z')) and len(group) == 2:
+            return "NCD/Debt"
+        if group.startswith('A') and len(group) == 2:
+            return "Debt"
+            
+    return group # Fallback to code itself
+
+
 def _get_scrip_data_files():
     scrip_dir = os.path.join(settings.BASE_DIR, 'trades', 'scrip_data')
     if not os.path.isdir(scrip_dir):
@@ -1021,6 +1091,10 @@ def search_scrip_cache(request):
             
             data = [dict(zip(columns, row)) for row in results]
             
+            # Add pGroup description
+            for item in data:
+                item['pGroupDesc'] = get_p_group_description(item.get('pExchSeg'), item.get('pGroup'))
+            
             logger.info(f"DuckDB DB Scrip search execution for '{search_term}' using filters (exchange: {exchange}, inst_type: {inst_type}) returned {len(data)} results.")
             
             return JsonResponse({
@@ -1063,6 +1137,7 @@ def get_scrip_info_ajax(request):
         
         columns = ['pSymbol', 'pExchSeg', 'pSymbolName', 'pTrdSymbol', 'pOptionType', 'pInstType', 'dStrikePrice', 'pScripRefKey', 'pDesc', 'pGroup', 'pAssetCode', 'has_option_chain', 'dTickSize', 'lLotSize']
         data = dict(zip(columns, results[0]))
+        data['pGroupDesc'] = get_p_group_description(data.get('pExchSeg'), data.get('pGroup'))
         
         return JsonResponse({'status': 'success', 'data': data})
     except Exception as e:

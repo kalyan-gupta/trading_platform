@@ -2144,9 +2144,14 @@
                                     extraInfoBadge = `<div class="mt-1"><span class="badge bg-light text-dark border">${expiryDate}</span> ${result.dStrikePrice > 0 ? `<span class="badge bg-light text-dark border">₹${result.dStrikePrice}</span>` : ''}</div>`;
                                 }
 
+                                let groupBadge = '';
+                                if (result.pGroup && result.pGroupDesc) {
+                                    groupBadge = `<span class="badge bg-light text-muted border ms-1" style="font-size: 0.65rem; font-weight: 500;">${result.pGroup}: ${result.pGroupDesc}</span>`;
+                                }
+
                                 row.innerHTML = `
                                     <td class="align-middle ps-4">
-                                        <div class="fw-bold text-dark fs-6" style="white-space: normal;" title="${result.pDesc || ''}">${displayName}${optionTypeBadge}</div>
+                                        <div class="fw-bold text-dark fs-6" style="white-space: normal;" title="${result.pDesc || ''}">${displayName}${optionTypeBadge}${groupBadge}</div>
                                         ${extraInfoBadge}
                                     </td>
                                     <td class="text-center align-middle"><span class="badge ${exchangeBadgeClass} border px-3 py-2">${exchangeLabel}</span></td>
