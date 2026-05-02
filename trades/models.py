@@ -10,15 +10,10 @@ class UserNeoCredentials(models.Model):
     """Store encrypted Kotak Neo API credentials for each user"""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='neo_credentials')
     
-    # Encrypted fields (stored encrypted)
     mpin = models.CharField(max_length=500)  # Encrypted
     consumer_key = models.CharField(max_length=500)  # Encrypted
     mobile_number = models.CharField(max_length=500)  # Encrypted
 
-    # SDK session metadata
-    sdk_session_active = models.BooleanField(default=False)
-    sdk_session_started_at = models.DateTimeField(null=True, blank=True)
-    sdk_session_expires_at = models.DateTimeField(null=True, blank=True)
     
     # Plain text fields
     ucc = models.CharField(max_length=100)
@@ -37,26 +32,6 @@ class UserNeoCredentials(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.account_name}"
 
-    def is_sdk_session_valid(self, timeout_seconds=1800):
-        """Return whether the stored SDK session is still valid."""
-        if not self.sdk_session_active or not self.sdk_session_expires_at:
-            return False
-        return timezone.now() < self.sdk_session_expires_at
-
-    def mark_sdk_session_active(self, duration_seconds=1800):
-        """Mark a SDK session as active for the given duration."""
-        self.sdk_session_active = True
-        self.sdk_session_started_at = timezone.now()
-        self.sdk_session_expires_at = timezone.now() + timezone.timedelta(seconds=duration_seconds)
-        self.save()
-
-    def deactivate_sdk_session(self):
-        """Mark the SDK session as inactive."""
-        self.sdk_session_active = False
-        self.sdk_session_started_at = None
-        self.sdk_session_expires_at = None
-        self.save()
-    
     @staticmethod
     def get_cipher():
         """Get the Fernet cipher for encryption/decryption"""
@@ -134,10 +109,15 @@ class UserNeoCredentials(models.Model):
 
 class SessionActivity(models.Model):
     """Track user session activity for expiry"""
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='session_activity')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='session_activities')
     last_activity = models.DateTimeField(auto_now=True)
     session_key = models.CharField(max_length=40, null=True, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    
+    # SDK session metadata per browser session
+    sdk_session_active = models.BooleanField(default=False)
+    sdk_session_started_at = models.DateTimeField(null=True, blank=True)
+    sdk_session_expires_at = models.DateTimeField(null=True, blank=True)
     
     class Meta:
         verbose_name = "Session Activity"
@@ -155,6 +135,26 @@ class SessionActivity(models.Model):
             timeout_seconds = settings.session_timeout_seconds
             
         return (timezone.now() - self.last_activity).total_seconds() > timeout_seconds
+
+    def is_sdk_session_valid(self, timeout_seconds=1800):
+        """Return whether the stored SDK session is still valid."""
+        if not self.sdk_session_active or not self.sdk_session_expires_at:
+            return False
+        return timezone.now() < self.sdk_session_expires_at
+
+    def mark_sdk_session_active(self, duration_seconds=1800):
+        """Mark a SDK session as active for the given duration."""
+        self.sdk_session_active = True
+        self.sdk_session_started_at = timezone.now()
+        self.sdk_session_expires_at = timezone.now() + timezone.timedelta(seconds=duration_seconds)
+        self.save()
+
+    def deactivate_sdk_session(self):
+        """Mark the SDK session as inactive."""
+        self.sdk_session_active = False
+        self.sdk_session_started_at = None
+        self.sdk_session_expires_at = None
+        self.save()
 
 
 class PlatformSettings(models.Model):

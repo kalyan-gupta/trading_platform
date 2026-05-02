@@ -4,9 +4,26 @@
 [![Django Version](https://img.shields.io/badge/django-6.0%2B-green.svg)](https://www.djangoproject.com/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-A high-performance, real-time trading terminal built with **Django**, **Channels**, and the **Kotak Neo API**. Designed for traders who need speed, reliability, and advanced order management.
+A high-performance, real-time trading terminal built for speed, reliability, and advanced order management.
 
 ---
+
+## ⚖️ License
+This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for the full text.
+
+## ❤️ Appreciations: Powering JK Terminal
+We are grateful to the incredible open-source community. This platform is built upon these powerful technologies:
+
+| Library | License | Description |
+| :--- | :--- | :--- |
+| **Django** | ![BSD-3](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg) | The web framework for perfectionists with deadlines. |
+| **Channels & Daphne** | ![BSD-3](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg) | Powering real-time WebSockets and ASGI capabilities. |
+| **DuckDB** | ![MIT](https://img.shields.io/badge/License-MIT-yellow.svg) | In-process analytical database for sub-millisecond data access. |
+| **Kotak Neo SDK** | ![Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg) | Official SDK for seamless interaction with Kotak Securities. |
+| **Cryptography** | ![Apache/BSD](https://img.shields.io/badge/License-Apache_2.0-green.svg) | Ensuring secure credential storage and session management. |
+
+---
+
 
 ## ✨ Key Features
 
@@ -154,19 +171,6 @@ Once the server is running:
 - **Never** commit your `.env` file or `db.sqlite3` to public repositories.
 - Keep your **SECRET_KEY** and **ENCRYPTION_KEY** private.
 - Regularly update the Scrip Master data to ensure accurate trading tokens.
-
----
-
-## ⚖️ License & Third-Party Acknowledgments
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-It utilizes several high-quality open-source libraries, including but not limited to:
-- **Django** (BSD-3-Clause)
-- **Django Channels & Daphne** (BSD-3-Clause)
-- **DuckDB** (MIT)
-- **Kotak Neo API SDK** (Proprietary/Public SDK provided by Kotak Securities)
-- **Python-Decouple, Requests, WebSockets** (MIT/Apache/BSD)
 
 ---
 

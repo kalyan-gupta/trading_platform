@@ -550,6 +550,9 @@
                         <span class="badge bg-danger-subtle text-danger-emphasis border border-danger-subtle"><i class="bi bi-x-circle-fill me-1"></i> API Disconnected</span>
                     {% endif %}
                 </span>
+                <button class="btn btn-sm btn-warning ms-3 fw-bold shadow-sm" id="resume-feed-nav-btn" style="display: none;">
+                    <i class="bi bi-play-circle me-1"></i>Resume Live Feed
+                </button>
                 <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
                     <span class="navbar-toggler-icon"></span>
                 </button>
@@ -693,6 +696,25 @@
                         <span id="scrip-step-2">2. Cache Update</span>
                         <span id="scrip-step-3">3. Finalizing</span>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tab Conflict Modal -->
+    <div class="modal fade" id="conflictTabModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title text-dark"><i class="bi bi-exclamation-triangle-fill me-2"></i>Multiple Active Tabs Detected</h5>
+                </div>
+                <div class="modal-body p-4 text-center">
+                    <p class="mb-4">You have JK Terminal open in another tab. To save bandwidth and prevent data collisions, live market data is paused here.</p>
+                    <p class="text-muted small">Do you want to use this tab for live updates instead?</p>
+                </div>
+                <div class="modal-footer justify-content-center border-0 pb-4">
+                    <button type="button" class="btn btn-outline-secondary px-4 shadow-sm" data-bs-dismiss="modal">Keep Paused</button>
+                    <button type="button" class="btn btn-primary px-4 shadow-sm" id="claim-master-btn" data-bs-dismiss="modal">Use This Tab</button>
                 </div>
             </div>
         </div>
@@ -1485,18 +1507,45 @@
 
             tradeSocket.onopen = function(e) {
                 console.log("WebSocket connection established");
+                
+                // Immediately send visibility state
+                tradeSocket.send(JSON.stringify({
+                    'action': 'set_visibility',
+                    'params': {'visible': document.visibilityState === 'visible'}
+                }));
+                
                 // Initial subscriptions for active tabs
-                if (document.getElementById('holdings-tab').classList.contains('active')) {
+                if (document.getElementById('holdings-tab') && document.getElementById('holdings-tab').classList.contains('active')) {
                     manageTableSubscriptions('holdings-table', true);
                 }
-                if (document.getElementById('positions-tab').classList.contains('active')) {
+                if (document.getElementById('positions-tab') && document.getElementById('positions-tab').classList.contains('active')) {
                     manageTableSubscriptions('positions-table', true);
                 }
             };
             
+            // Visibility change listener
+            document.addEventListener('visibilitychange', function() {
+                if (tradeSocket.readyState === WebSocket.OPEN) {
+                    tradeSocket.send(JSON.stringify({
+                        'action': 'set_visibility',
+                        'params': {'visible': document.visibilityState === 'visible'}
+                    }));
+                }
+            });
+
+            // Claim master button listeners
+            const claimMasterHandler = function() {
+                if (tradeSocket.readyState === WebSocket.OPEN) {
+                    tradeSocket.send(JSON.stringify({'action': 'claim_master'}));
+                }
+            };
+            document.getElementById('claim-master-btn')?.addEventListener('click', claimMasterHandler);
+            document.getElementById('resume-feed-nav-btn')?.addEventListener('click', claimMasterHandler);
+            
             // Flag to track if the WebSocket is authenticated on the backend
             let isSocketAuthenticated = false;
             let pendingSubscriptions = [];
+            window.isFeedPaused = false;
             
             function processPendingSubscriptions() {
                 if (isSocketAuthenticated && tradeSocket.readyState === WebSocket.OPEN) {
@@ -1948,6 +1997,27 @@
                     console.log("WebSocket Backend Auth Confirmed");
                     isSocketAuthenticated = true;
                     processPendingSubscriptions();
+                } else if (incoming_data.type === 'conflict_popup') {
+                    const modal = new bootstrap.Modal(document.getElementById('conflictTabModal'));
+                    modal.show();
+                } else if (incoming_data.type === 'feed_paused') {
+                    window.isFeedPaused = true;
+                    const resumeBtn = document.getElementById('resume-feed-nav-btn');
+                    if (resumeBtn) resumeBtn.style.display = 'block';
+                    showNotification(incoming_data.message, 'warning');
+                } else if (incoming_data.type === 'status') {
+                    window.isFeedPaused = false;
+                    const resumeBtn = document.getElementById('resume-feed-nav-btn');
+                    if (resumeBtn) resumeBtn.style.display = 'none';
+                    
+                    // If this tab was auto-promoted to master, hide the conflict modal if it's open
+                    const conflictModalEl = document.getElementById('conflictTabModal');
+                    if (conflictModalEl) {
+                        const modalInstance = bootstrap.Modal.getInstance(conflictModalEl);
+                        if (modalInstance) modalInstance.hide();
+                    }
+                    
+                    showNotification(incoming_data.message, 'success');
                 } else {
                     console.log("WebSocket Debug:", incoming_data);
                 }

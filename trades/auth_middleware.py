@@ -22,8 +22,8 @@ class SessionExpiryMiddleware:
             try:
                 # Get or create session activity record
                 session_activity, created = SessionActivity.objects.get_or_create(
-                    user=request.user,
-                    defaults={'session_key': request.session.session_key, 'ip_address': self.get_client_ip(request)}
+                    session_key=request.session.session_key,
+                    defaults={'user': request.user, 'ip_address': self.get_client_ip(request)}
                 )
                 
                 # Check if session has expired

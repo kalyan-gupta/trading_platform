@@ -140,9 +140,15 @@ class KotakNeoAPI:
             self.cache_session(login_data=validate_response, duration_seconds=sdk_duration)
 
             if self.user_credentials_obj:
-                self.user_credentials_obj.mark_sdk_session_active(duration_seconds=sdk_duration)
                 self.user_credentials_obj.last_used = timezone.now()
                 self.user_credentials_obj.save()
+            
+            from trades.models import SessionActivity
+            try:
+                session_activity = SessionActivity.objects.get(session_key=self.session_id)
+                session_activity.mark_sdk_session_active(duration_seconds=sdk_duration)
+            except SessionActivity.DoesNotExist:
+                logger.warning(f"SessionActivity not found for session_id {self.session_id}. SDK state not saved.")
 
             logger.info(f"Authentication successful for {self.user.username if self.user else 'user'}.")
             return {"status": "success", "message": "Authenticated successfully"}
@@ -345,8 +351,12 @@ class KotakNeoAPI:
         except Exception as e:
             logger.warning(f"SDK logout call failed: {e}", exc_info=True)
 
-        if self.user_credentials_obj:
-            self.user_credentials_obj.deactivate_sdk_session()
+        from trades.models import SessionActivity
+        try:
+            session_activity = SessionActivity.objects.get(session_key=self.session_id)
+            session_activity.deactivate_sdk_session()
+        except SessionActivity.DoesNotExist:
+            pass
 
         self.clear_cached_session()
         self.is_authenticated = False

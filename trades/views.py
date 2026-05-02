@@ -195,9 +195,9 @@ def login_view(request):
                 login(request, user)
                 # Create or update session activity
                 SessionActivity.objects.update_or_create(
-                    user=user,
+                    session_key=request.session.session_key,
                     defaults={
-                        'session_key': request.session.session_key,
+                        'user': user,
                         'ip_address': get_client_ip(request)
                     }
                 )
@@ -301,9 +301,9 @@ def register_view(request):
                 # Redirect to credentials setup
                 login(request, user)
                 SessionActivity.objects.update_or_create(
-                    user=user,
+                    session_key=request.session.session_key,
                     defaults={
-                        'session_key': request.session.session_key,
+                        'user': user,
                         'ip_address': get_client_ip(request)
                     }
                 )
@@ -339,9 +339,9 @@ def otp_verify_view(request):
                     messages.success(request, "Email verified successfully! Welcome.")
                     login(request, user)
                     SessionActivity.objects.update_or_create(
-                        user=user,
+                        session_key=request.session.session_key,
                         defaults={
-                            'session_key': request.session.session_key,
+                            'user': user,
                             'ip_address': get_client_ip(request)
                         }
                     )
@@ -363,7 +363,7 @@ def logout_view(request):
     if request.user.is_authenticated:
         username = request.user.username
         logout_sdk_for_user(request.user, request=request)
-        SessionActivity.objects.filter(user=request.user).delete()
+        SessionActivity.objects.filter(session_key=request.session.session_key).delete()
         logout(request)
         logger.info(f"User '{username}' logged out.")
         messages.success(request, f"Logged out successfully. Goodbye, {username}!")
@@ -376,8 +376,8 @@ def extend_session(request):
     if request.method == 'POST':
         # Update session activity to extend the session
         SessionActivity.objects.update_or_create(
-            user=request.user,
-            defaults={'last_activity': timezone.now()}
+            session_key=request.session.session_key,
+            defaults={'user': request.user, 'last_activity': timezone.now()}
         )
         return JsonResponse({'status': 'success', 'message': 'Session extended successfully.'})
     return JsonResponse({'status': 'error', 'message': 'Invalid request method.'})
@@ -525,7 +525,8 @@ def profile_view(request):
     sdk_status = False
     if has_credentials:
         try:
-            sdk_status = user_creds.is_sdk_session_valid()
+            session_activity = SessionActivity.objects.get(session_key=request.session.session_key)
+            sdk_status = session_activity.is_sdk_session_valid()
         except Exception:
             sdk_status = False
 
@@ -1482,7 +1483,12 @@ def index(request):
         messages.warning(request, "Please configure your Neo API credentials to start trading.")
         return redirect('setup_credentials')
 
-    sdk_active = user_creds.is_sdk_session_valid()
+    try:
+        session_activity = SessionActivity.objects.get(session_key=request.session.session_key)
+        sdk_active = session_activity.is_sdk_session_valid()
+    except SessionActivity.DoesNotExist:
+        sdk_active = False
+
     if not sdk_active:
         messages.warning(request, "Your Neo SDK session is not active or has expired. Please reauthenticate.")
 
