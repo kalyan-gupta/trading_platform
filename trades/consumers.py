@@ -83,25 +83,15 @@ class LiveQuotesConsumer(WebsocketConsumer):
             with ws_state_lock:
                 USER_WS_STATE[self.ws_group_key]['sessions'][self.ws_session_id] = {
                     "consumer": self,
-                    "is_visible": True,
+                    "is_visible": False,  # Default to False until reported by client
                     "desired_subs": {'regular': set(), 'index': set(), 'depth': set()}
                 }
                 
-                # If no master exists, we become master
+                # If no master exists, we become master (but hidden, so no subscriptions yet)
                 if USER_WS_STATE[self.ws_group_key]['master_session'] is None:
                     USER_WS_STATE[self.ws_group_key]['master_session'] = self.ws_session_id
-                else:
-                    # There is an existing master. If they are visible, we have a conflict.
-                    # Send popup to *this* new connection.
-                    master_id = USER_WS_STATE[self.ws_group_key]['master_session']
-                    master_state = USER_WS_STATE[self.ws_group_key]['sessions'].get(master_id)
-                    if master_state and master_state['is_visible']:
-                        self.send(text_data=json.dumps({"type": "conflict_popup", "message": "Multiple active tabs"}))
-                    else:
-                        # Existing master is hidden, we take over safely
-                        USER_WS_STATE[self.ws_group_key]['master_session'] = self.ws_session_id
 
-            logger.info(f"WebSocket connected for user '{user_name}' (Master: {self.is_master()})")
+            logger.info(f"WebSocket connected for user '{user_name}' (Session: {self.ws_session_id})")
             self.send(text_data=json.dumps({'message': 'Connected and authenticated'}))
 
     def disconnect(self, close_code):
@@ -220,20 +210,33 @@ class LiveQuotesConsumer(WebsocketConsumer):
                     state['master_session'] = None
                     self.send(text_data=json.dumps({"type": "feed_paused", "message": "Feed paused (tab hidden)"}))
                     
-                    # Try to elect a new master
+                    # Try to elect a new master from visible sessions
                     visible_sessions = [sid for sid, info in state['sessions'].items() if info['is_visible']]
-                    if len(visible_sessions) == 1:
+                    if visible_sessions:
                         new_master_id = visible_sessions[0]
                         state['master_session'] = new_master_id
                         new_master_consumer = state['sessions'][new_master_id]['consumer']
                         new_master_consumer.apply_all_subscriptions()
                         new_master_consumer.send(text_data=json.dumps({"type": "status", "message": "Feed resumed (active tab)"}))
             else:
-                visible_sessions = [sid for sid, info in state['sessions'].items() if info['is_visible'] and sid != self.ws_session_id]
-                if len(visible_sessions) > 0 or (state['master_session'] and state['master_session'] != self.ws_session_id):
+                # Tab became visible. Check for conflicts.
+                other_visible_sessions = [sid for sid, info in state['sessions'].items() if info['is_visible'] and sid != self.ws_session_id]
+                
+                if other_visible_sessions:
+                    # Conflict: Another tab is already visible.
                     self.send(text_data=json.dumps({"type": "conflict_popup", "message": "Multiple active tabs"}))
                 else:
-                    state['master_session'] = self.ws_session_id
+                    # No other visible tabs. We take over as master if needed.
+                    if state['master_session'] != self.ws_session_id:
+                        old_master_id = state['master_session']
+                        if old_master_id:
+                            old_master_state = state['sessions'].get(old_master_id)
+                            if old_master_state:
+                                old_master_state['consumer'].remove_all_subscriptions()
+                                old_master_state['consumer'].send(text_data=json.dumps({"type": "feed_paused", "message": "Feed paused. Active in another tab."}))
+                        
+                        state['master_session'] = self.ws_session_id
+                    
                     self.apply_all_subscriptions()
                     self.send(text_data=json.dumps({"type": "status", "message": "Feed resumed (active tab)"}))
 

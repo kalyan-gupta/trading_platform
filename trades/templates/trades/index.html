@@ -1966,14 +1966,29 @@
                         window.isSDKAuthenticated = true;
                         processPendingSubscriptions();
                     } else if (incoming_data.type === 'conflict_popup') {
-                        const modal = new bootstrap.Modal(document.getElementById('conflictTabModal'));
-                        modal.show();
+                        // Grace period: Wait 500ms before showing the conflict modal.
+                        // This allows "hidden" events from other tabs to reach the server and potentially resolve the conflict
+                        // before the user sees an annoying popup (especially during refreshes or tab switches).
+                        if (window.conflictModalTimeout) clearTimeout(window.conflictModalTimeout);
+                        window.conflictModalTimeout = setTimeout(() => {
+                            const modal = new bootstrap.Modal(document.getElementById('conflictTabModal'));
+                            modal.show();
+                            window.isFeedPaused = true;
+                            const resumeBtn = document.getElementById('resume-feed-nav-btn');
+                            if (resumeBtn) resumeBtn.style.display = 'block';
+                        }, 500);
                     } else if (incoming_data.type === 'feed_paused') {
                         window.isFeedPaused = true;
                         const resumeBtn = document.getElementById('resume-feed-nav-btn');
                         if (resumeBtn) resumeBtn.style.display = 'block';
                         showNotification(incoming_data.message, 'warning');
                     } else if (incoming_data.type === 'status') {
+                        // Clear any pending conflict popup
+                        if (window.conflictModalTimeout) {
+                            clearTimeout(window.conflictModalTimeout);
+                            window.conflictModalTimeout = null;
+                        }
+
                         window.isFeedPaused = false;
                         const resumeBtn = document.getElementById('resume-feed-nav-btn');
                         if (resumeBtn) resumeBtn.style.display = 'none';
