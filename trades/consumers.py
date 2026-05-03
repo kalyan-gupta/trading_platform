@@ -107,6 +107,7 @@ class LiveQuotesConsumer(WebsocketConsumer):
                 'server_start_time': SERVER_START_TIME,
                 'session_restored': auth_response.get('restored', False) and p_settings.allow_session_restore,
                 'needs_scrip_refresh': scrip_status.get('needs_refresh', False),
+                'scrip_refresh_reason': scrip_status.get('reason'),
                 'message': 'Connected and authenticated'
             }))
 

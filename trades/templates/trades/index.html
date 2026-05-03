@@ -1987,7 +1987,7 @@
                                 var scripModal = bootstrap.Modal.getOrCreateInstance(scripModalEl);
                                 scripModal.show();
                                 if (typeof window.startScripRefreshFlow === 'function') {
-                                    window.startScripRefreshFlow('Server indicated refresh needed');
+                                    window.startScripRefreshFlow(incoming_data.scrip_refresh_reason || 'Server indicated refresh needed');
                                 }
                             }
                         }

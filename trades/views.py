@@ -909,6 +909,8 @@ def change_password_view(request):
 
 # ==================== Trading Views (Protected) ====================
 
+_scrip_refresh_lock = threading.Lock()
+
 def _check_scrip_status_logic():
     """Internal logic to check if scrip master files exist and are up to date."""
     from datetime import datetime
@@ -922,7 +924,7 @@ def _check_scrip_status_logic():
     if not csv_files:
         return {'needs_refresh': True, 'reason': 'No files found'}
     
-    now = timezone.now()
+    now = timezone.localtime(timezone.now())
     cutoff_time = now.replace(hour=8, minute=0, second=0, microsecond=0)
     
     if now.hour < 8:
@@ -963,19 +965,25 @@ def check_scrip_status(request):
 
 @login_required_with_session_check
 def refresh_scrip_master(request):
-    try:
-        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
-    
-    try:
-        result = api.download_scrip_master()
-        if result.get('status') == 'success':
-            return JsonResponse({'status': 'success', 'message': f"Scrip master data downloaded successfully to {result.get('downloaded_files')}"})
-        else:
-            return JsonResponse({'status': 'error', 'message': result.get('error', 'An unknown error occurred.')})
-    except Exception as e:
-        return JsonResponse({'status': 'error', 'message': str(e)})
+    with _scrip_refresh_lock:
+        # Double check if refresh is still needed (could have been completed by another concurrent request)
+        status = _check_scrip_status_logic()
+        if not status.get('needs_refresh') or status.get('reason') == 'Cache empty':
+            return JsonResponse({'status': 'success', 'message': 'Scrip master files are already up-to-date.'})
+
+        try:
+            api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)}, status=400)
+        
+        try:
+            result = api.download_scrip_master()
+            if result.get('status') == 'success':
+                return JsonResponse({'status': 'success', 'message': f"Scrip master data downloaded successfully to {result.get('downloaded_files')}"})
+            else:
+                return JsonResponse({'status': 'error', 'message': result.get('error', 'An unknown error occurred.')})
+        except Exception as e:
+            return JsonResponse({'status': 'error', 'message': str(e)})
 
 
 @login_required_with_session_check
@@ -983,11 +991,17 @@ def refresh_scrip_cache(request):
     if request.method != 'GET':
         return JsonResponse({'status': 'error', 'message': 'Only GET requests are allowed.'}, status=405)
 
-    success, message, row_count = _perform_scrip_cache_refresh()
-    if success:
-        return JsonResponse({'status': 'success', 'message': message, 'row_count': row_count})
-    else:
-        return JsonResponse({'status': 'error', 'message': message}, status=500)
+    with _scrip_refresh_lock:
+        # Double check if cache update is still needed
+        status = _check_scrip_status_logic()
+        if not status.get('needs_refresh'):
+            return JsonResponse({'status': 'success', 'message': 'Scrip cache is already up-to-date.'})
+
+        success, message, row_count = _perform_scrip_cache_refresh()
+        if success:
+            return JsonResponse({'status': 'success', 'message': message, 'row_count': row_count})
+        else:
+            return JsonResponse({'status': 'error', 'message': message}, status=500)
 
 
 @login_required_with_session_check
