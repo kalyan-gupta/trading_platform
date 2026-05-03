@@ -3710,7 +3710,7 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        // Success! Reload the page to refresh session state
+                        // Success! Reload the page to refresh full state (navbar, badges, etc.)
                         window.location.reload();
                     } else {
                         errorEl.textContent = data.message || 'Authentication failed.';
@@ -4126,11 +4126,10 @@
                 const submitBtn = document.getElementById('totp-submit-btn');
                 const cancelBtn = document.getElementById('totp-cancel-btn');
 
-                let timeRemaining = 20;
+                let timeRemaining = 60;
 
                 const updateTimer = () => {
                     timerElement.textContent = timeRemaining;
-                    timeRemaining -= 1;
                     if (timeRemaining < 0) {
                         clearInterval(totpCountdown);
                         // Timeout: logout both sessions
@@ -4138,11 +4137,20 @@
                         setTimeout(() => {
                             window.location.href = '/logout/';
                         }, 2000);
+                        return;
                     }
+                    timeRemaining -= 1;
                 };
 
                 totpCountdown = setInterval(updateTimer, 1000);
                 updateTimer();
+
+                // Connect footer button to form submission
+                if (submitBtn) {
+                    submitBtn.onclick = function() {
+                        form.requestSubmit(); // Triggers onsubmit and validation
+                    };
+                }
 
                 // Handle form submission
                 form.onsubmit = function(e) {
@@ -4159,25 +4167,26 @@
                     fetch('/reauthenticate/', {
                         method: 'POST',
                         headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': getCookie('csrftoken')
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': getCookie('csrftoken'),
+                            'X-Requested-With': 'XMLHttpRequest'
                         },
-                        body: new URLSearchParams({
-                            'totp': totp,
-                            'csrfmiddlewaretoken': getCookie('csrftoken')
-                        })
+                        body: JSON.stringify({ totp: totp })
                     })
-                    .then(response => {
-                        if (response.redirected) {
-                            // Success - redirect to index
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            // Success
                             clearInterval(totpCountdown);
                             modal.hide();
                             if (onSuccess) onSuccess();
                             showNotification('Trade session reauthenticated successfully.', 'success');
+                            // Update SDK status in UI
+                            if (typeof checkSDKStatus === 'function') checkSDKStatus();
+                            // Reload to refresh full state (navbar, badges, etc.)
+                            window.location.reload();
                         } else {
-                            return response.text().then(text => {
-                                throw new Error(text);
-                            });
+                            throw new Error(data.message || 'Authentication failed.');
                         }
                     })
                     .catch(error => {
