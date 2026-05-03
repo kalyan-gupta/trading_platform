@@ -42,6 +42,7 @@ urlpatterns = [
     path('get_scrip_info/', views.get_scrip_info_ajax, name='get_scrip_info_ajax'),
     path('get_option_chain_ajax/', views.get_option_chain_ajax, name='get_option_chain_ajax'),
     path('reauthenticate/', views.reauthenticate_view, name='reauthenticate'),
+    path('extend_sdk_session/', views.extend_sdk_session_ajax, name='extend_sdk_session_ajax'),
     path('logout_sdk/', views.logout_sdk_session, name='logout_sdk'),
     path('check_sdk_status/', views.check_sdk_status, name='check_sdk_status'),
     path('get_order_book_ajax/', views.get_order_book_ajax, name='get_order_book_ajax'),

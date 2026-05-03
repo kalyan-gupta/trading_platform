@@ -1476,7 +1476,118 @@
             sdk_timeout_seconds: parseInt(settingsData.sdkSeconds)
         };
 
+        let tradeSocket = null;
+        let reconnectAttempts = 0;
+        const maxReconnectDelay = 10000;
+
+        // Flag to track if the WebSocket is authenticated on the backend
+        let isSocketAuthenticated = false;
+        let pendingSubscriptions = [];
+        window.isFeedPaused = false;
+        
+        function processPendingSubscriptions() {
+            if (isSocketAuthenticated && typeof tradeSocket !== 'undefined' && tradeSocket && tradeSocket.readyState === WebSocket.OPEN) {
+                pendingSubscriptions.forEach(sub => {
+                    tradeSocket.send(JSON.stringify(sub));
+                });
+                pendingSubscriptions = [];
+            }
+        }
+
+        function manageTableSubscriptions(tableId, subscribe) {
+            const table = document.getElementById(tableId);
+            if (!table) return;
+            
+            const rows = table.querySelectorAll("tbody tr[data-token]");
+            if (rows.length === 0) return;
+            
+            const instruments = Array.from(rows).map(row => {
+                return { "instrument_token": row.dataset.token, "exchange_segment": row.dataset.exch || "nse_cm" };
+            });
+            
+            const payload = {
+                'action': subscribe ? 'subscribe' : 'unsubscribe',
+                'params': { 'instrument_tokens': instruments }
+            };
+            
+            if (isSocketAuthenticated && typeof tradeSocket !== 'undefined' && tradeSocket && tradeSocket.readyState === WebSocket.OPEN) {
+                tradeSocket.send(JSON.stringify(payload));
+            } else if (subscribe) {
+                pendingSubscriptions.push(payload);
+                processPendingSubscriptions();
+            }
+        }
+
+        // Tab change listener to manage subscriptions
+        function initTabChangeSubscriptions() {
+            document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(tabEl => {
+                tabEl.addEventListener('shown.bs.tab', event => {
+                    const targetId = event.target.getAttribute('data-bs-target');
+                    if (targetId === '#holdings-tab-pane') {
+                        manageTableSubscriptions('holdings-table', true);
+                    } else if (targetId === '#positions-tab-pane') {
+                        manageTableSubscriptions('positions-table', true);
+                    }
+                });
+                
+                tabEl.addEventListener('hide.bs.tab', event => {
+                    const targetId = event.target.getAttribute('data-bs-target');
+                    if (targetId === '#holdings-tab-pane') {
+                        manageTableSubscriptions('holdings-table', false);
+                    } else if (targetId === '#positions-tab-pane') {
+                        manageTableSubscriptions('positions-table', false);
+                    }
+                });
+            });
+        }
+
+        // Portfolio row click handlers - Only attach once using event delegation
+        function initPortfolioClickHandlers() {
+            const portfolioTables = ['holdings-table', 'positions-table'];
+            portfolioTables.forEach(tableId => {
+                const table = document.getElementById(tableId);
+                if (!table || table.dataset.listenersAttached) return;
+                
+                table.addEventListener('click', function(e) {
+                    const row = e.target.closest('tr[data-token]');
+                    if (!row) return;
+                    
+                    const token = row.dataset.token;
+                    const exch = row.dataset.exch;
+                    const qty = parseFloat(row.dataset.qty);
+                    const avg = parseFloat(row.dataset.avg);
+                    
+                    // Fetch full scrip info from server
+                    fetch(`/get_scrip_info/?token=${token}&exch=${exch}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                showScripActionModal(data.data, {
+                                    isPortfolio: true,
+                                    portfolioQty: qty,
+                                    portfolioAvg: avg,
+                                    tableId: tableId
+                                });
+                            } else {
+                                showNotification('Error fetching scrip info: ' + (data.error || 'Unknown error'), 'danger');
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error:', error);
+                            showNotification('Failed to fetch scrip info', 'danger');
+                        });
+                });
+                
+                // Add pointer cursor to rows
+                table.querySelectorAll('tbody tr[data-token]').forEach(row => {
+                    row.style.cursor = 'pointer';
+                });
+                table.dataset.listenersAttached = "true";
+            });
+        }
+
         document.addEventListener("DOMContentLoaded", function() {
+            initTabChangeSubscriptions();
             // Helper function to get CSRF token
             function getCookie(name) {
                 let cookieValue = null;
@@ -1493,8 +1604,9 @@
                 return cookieValue;
             }
 
-            const tradeSocket = new WebSocket(`ws://${window.location.host}/ws/trades/`);
-
+            
+            function connectWebSocket() {
+                tradeSocket = new WebSocket(`ws://${window.location.host}/ws/trades/`);
             // Global Modal Backdrop Cleanup - ensures backdrops are removed when all modals are closed
             document.addEventListener('hidden.bs.modal', function () {
                 if (document.querySelectorAll('.modal.show').length === 0) {
@@ -1507,6 +1619,10 @@
 
             tradeSocket.onopen = function(e) {
                 console.log("WebSocket connection established");
+                reconnectAttempts = 0;
+                
+                // Process any subscriptions that queued up while disconnected
+                setTimeout(processPendingSubscriptions, 1000);
                 
                 // Immediately send visibility state
                 tradeSocket.send(JSON.stringify({
@@ -1542,108 +1658,6 @@
             document.getElementById('claim-master-btn')?.addEventListener('click', claimMasterHandler);
             document.getElementById('resume-feed-nav-btn')?.addEventListener('click', claimMasterHandler);
             
-            // Flag to track if the WebSocket is authenticated on the backend
-            let isSocketAuthenticated = false;
-            let pendingSubscriptions = [];
-            window.isFeedPaused = false;
-            
-            function processPendingSubscriptions() {
-                if (isSocketAuthenticated && tradeSocket.readyState === WebSocket.OPEN) {
-                    pendingSubscriptions.forEach(sub => {
-                        tradeSocket.send(JSON.stringify(sub));
-                    });
-                    pendingSubscriptions = [];
-                }
-            }
-
-            function manageTableSubscriptions(tableId, subscribe) {
-                const table = document.getElementById(tableId);
-                if (!table) return;
-                
-                const rows = table.querySelectorAll("tbody tr[data-token]");
-                if (rows.length === 0) return;
-                
-                const instruments = Array.from(rows).map(row => {
-                    return { "instrument_token": row.dataset.token, "exchange_segment": row.dataset.exch || "nse_cm" };
-                });
-                
-                const payload = {
-                    'action': subscribe ? 'subscribe' : 'unsubscribe',
-                    'params': { 'instrument_tokens': instruments }
-                };
-                
-                if (isSocketAuthenticated && tradeSocket.readyState === WebSocket.OPEN) {
-                    tradeSocket.send(JSON.stringify(payload));
-                } else if (subscribe) {
-                    pendingSubscriptions.push(payload);
-                    processPendingSubscriptions();
-                }
-            }
-
-            // Tab change listener to manage subscriptions
-            document.querySelectorAll('button[data-bs-toggle="tab"]').forEach(tabEl => {
-                tabEl.addEventListener('shown.bs.tab', event => {
-                    const targetId = event.target.getAttribute('data-bs-target');
-                    if (targetId === '#holdings-tab-pane') {
-                        manageTableSubscriptions('holdings-table', true);
-                    } else if (targetId === '#positions-tab-pane') {
-                        manageTableSubscriptions('positions-table', true);
-                    }
-                });
-                
-                tabEl.addEventListener('hide.bs.tab', event => {
-                    const targetId = event.target.getAttribute('data-bs-target');
-                    if (targetId === '#holdings-tab-pane') {
-                        manageTableSubscriptions('holdings-table', false);
-                    } else if (targetId === '#positions-tab-pane') {
-                        manageTableSubscriptions('positions-table', false);
-                    }
-                });
-            });
-
-            // Portfolio row click handlers
-            function initPortfolioClickHandlers() {
-                const portfolioTables = ['holdings-table', 'positions-table'];
-                portfolioTables.forEach(tableId => {
-                    const table = document.getElementById(tableId);
-                    if (!table) return;
-                    
-                    table.addEventListener('click', function(e) {
-                        const row = e.target.closest('tr[data-token]');
-                        if (!row) return;
-                        
-                        const token = row.dataset.token;
-                        const exch = row.dataset.exch;
-                        const qty = parseFloat(row.dataset.qty);
-                        const avg = parseFloat(row.dataset.avg);
-                        
-                        // Fetch full scrip info from server
-                        fetch(`/get_scrip_info/?token=${token}&exch=${exch}`)
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.status === 'success') {
-                                    showScripActionModal(data.data, {
-                                        isPortfolio: true,
-                                        portfolioQty: qty,
-                                        portfolioAvg: avg,
-                                        tableId: tableId
-                                    });
-                                } else {
-                                    showNotification('Error fetching scrip info: ' + (data.error || 'Unknown error'), 'danger');
-                                }
-                            })
-                            .catch(error => {
-                                console.error('Error:', error);
-                                showNotification('Failed to fetch scrip info', 'danger');
-                            });
-                    });
-                    
-                    // Add pointer cursor to rows
-                    table.querySelectorAll('tbody tr[data-token]').forEach(row => {
-                        row.style.cursor = 'pointer';
-                    });
-                });
-            }
 
             function showScripActionModal(result, portfolioContext = null) {
                 const isFO = result.pExchSeg && result.pExchSeg.toLowerCase().includes('_fo');
@@ -2025,11 +2039,25 @@
 
             tradeSocket.onclose = function(e) {
                 console.error('WebSocket closed unexpectedly. Code:', e.code, 'Reason:', e.reason);
+                isSocketAuthenticated = false;
+                
+                // Exponential backoff reconnect
+                const delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), maxReconnectDelay);
+                console.log(`Reconnecting in ${Math.round(delay/1000)} seconds...`);
+                setTimeout(() => {
+                    reconnectAttempts++;
+                    connectWebSocket();
+                }, delay);
             };
 
             tradeSocket.onerror = function(err) {
                 console.error('WebSocket error:', err);
             };
+            
+            } // end connectWebSocket
+            
+            // Initial connection
+            connectWebSocket();
 
             const notificationArea = document.getElementById('notification-area');
 
@@ -4832,7 +4860,10 @@
                             showNotification('Failed to refresh holdings: ' + data.message, 'danger');
                         }
                     })
-                    .catch(err => showNotification('Error refreshing holdings', 'danger'))
+                    .catch(err => {
+                        console.error('Refresh holdings error:', err);
+                        showNotification('Error refreshing holdings', 'danger');
+                    })
                     .finally(() => setRefreshLoading('refresh-holdings-btn', false));
             });
 
@@ -4848,7 +4879,10 @@
                             showNotification('Failed to refresh positions: ' + data.message, 'danger');
                         }
                     })
-                    .catch(err => showNotification('Error refreshing positions', 'danger'))
+                    .catch(err => {
+                        console.error('Refresh positions error:', err);
+                        showNotification('Error refreshing positions', 'danger');
+                    })
                     .finally(() => setRefreshLoading('refresh-positions-btn', false));
             });
 
@@ -4926,7 +4960,9 @@
                             </td>
                         </tr>`;
                 });
-                tbody.innerHTML = html;
+                if (tbody) {
+                    tbody.innerHTML = html;
+                }
                 
                 // Re-subscribe and re-attach click handlers
                 manageTableSubscriptions('holdings-table', true);
@@ -4957,7 +4993,9 @@
                             </td>
                         </tr>`;
                 });
-                tbody.innerHTML = html;
+                if (tbody) {
+                    tbody.innerHTML = html;
+                }
                 
                 // Re-subscribe and re-attach click handlers
                 manageTableSubscriptions('positions-table', true);
@@ -5101,5 +5139,146 @@
         }
     });
     </script>
+
+    <!-- SDK Extension Modal -->
+    <div class="modal fade" id="sdkExtensionModal" tabindex="-1" aria-labelledby="sdkExtensionModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-warning">
+                <div class="modal-header bg-warning text-dark">
+                    <h5 class="modal-title" id="sdkExtensionModalLabel"><i class="bi bi-clock-history me-2"></i>Session Expiring Soon</h5>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <div class="mb-3">
+                        <i class="bi bi-exclamation-triangle text-warning" style="font-size: 3rem;"></i>
+                    </div>
+                    <h5>Your trading session will expire in <span id="sdk-expire-countdown" class="fw-bold text-danger">3:00</span></h5>
+                    <p class="text-muted">Would you like to extend your session to continue trading without re-authenticating?</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Let it Expire</button>
+                    <button type="button" class="btn btn-warning" id="extend-sdk-session-btn">
+                        <i class="bi bi-arrow-clockwise me-1"></i> Extend Session
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // SDK Session Extension Timer Logic
+        const initialSdkExpiresAtStr = "{{ sdk_expires_at|default:'' }}";
+        let sdkExpiresAt = initialSdkExpiresAtStr ? new Date(initialSdkExpiresAtStr) : null;
+        let sdkWarningShown = false;
+        let sdkExtensionTimer = null;
+        
+        function checkSdkExpiry() {
+            if (!sdkExpiresAt) return;
+            
+            const now = new Date();
+            const timeRemainingMs = sdkExpiresAt - now;
+            const timeRemainingSecs = Math.floor(timeRemainingMs / 1000);
+            
+            if (timeRemainingSecs <= 180 && timeRemainingSecs > 0) { // 3 minutes warning
+                if (!sdkWarningShown) {
+                    sdkWarningShown = true;
+                    const modal = new bootstrap.Modal(document.getElementById('sdkExtensionModal'));
+                    modal.show();
+                }
+                // Update countdown text
+                const mins = Math.floor(timeRemainingSecs / 60);
+                const secs = timeRemainingSecs % 60;
+                const text = `${mins}:${secs.toString().padStart(2, '0')}`;
+                const counterEl = document.getElementById('sdk-expire-countdown');
+                if (counterEl) counterEl.textContent = text;
+                
+            } else if (timeRemainingSecs <= 0) {
+                // Already expired
+                clearInterval(sdkExtensionTimer);
+                const modalEl = document.getElementById('sdkExtensionModal');
+                if (modalEl) {
+                    const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                    if (modalInstance) modalInstance.hide();
+                }
+            }
+        }
+        
+        if (sdkExpiresAt) {
+            sdkExtensionTimer = setInterval(checkSdkExpiry, 1000);
+            checkSdkExpiry(); // Initial check
+        }
+        
+        const extendSdkBtn = document.getElementById('extend-sdk-session-btn');
+        if (extendSdkBtn) {
+            extendSdkBtn.addEventListener('click', function() {
+                const originalText = this.innerHTML;
+                this.disabled = true;
+                this.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Extending...';
+                
+                fetch('/extend_sdk_session/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-Requested-With': 'XMLHttpRequest'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        sdkExpiresAt = new Date(data.new_expires_at);
+                        sdkWarningShown = false;
+                        showNotification('Trading session extended successfully!', 'success');
+                        
+                        const modalEl = document.getElementById('sdkExtensionModal');
+                        const modalInstance = bootstrap.Modal.getInstance(modalEl);
+                        if (modalInstance) modalInstance.hide();
+                    } else {
+                        showNotification(data.message || 'Failed to extend session.', 'danger');
+                    }
+                })
+                .catch(error => {
+                    console.error("Extension error:", error);
+                    showNotification('An error occurred while extending the session.', 'danger');
+                })
+                .finally(() => {
+                    this.disabled = false;
+                    this.innerHTML = originalText;
+                });
+            });
+        }
+    </script>
+
+    {% if show_restore_modal %}
+    <!-- Session Restored Modal -->
+    <div class="modal fade" id="sessionRestoredModal" tabindex="-1" aria-labelledby="sessionRestoredModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-success">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title" id="sessionRestoredModalLabel"><i class="bi bi-shield-check me-2"></i>Session Restored</h5>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <div class="mb-3">
+                        <i class="bi bi-server text-success" style="font-size: 3rem;"></i>
+                    </div>
+                    <h5>The server has restarted.</h5>
+                    <p class="text-muted">Your active session has been automatically restored from the database.</p>
+                </div>
+                <div class="modal-footer justify-content-center">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Proceed</button>
+                    <button type="button" class="btn btn-success" onclick="bootstrap.Modal.getInstance(document.getElementById('sessionRestoredModal')).hide(); setTimeout(function() { showTOTPReauthModal(); }, 300);">Reauthenticate SDK</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            var restoreModalEl = document.getElementById('sessionRestoredModal');
+            if (restoreModalEl) {
+                var restoreModal = new bootstrap.Modal(restoreModalEl);
+                restoreModal.show();
+            }
+        });
+    </script>
+    {% endif %}
 </body>
 </html>

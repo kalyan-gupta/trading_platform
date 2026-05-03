@@ -118,6 +118,7 @@ class SessionActivity(models.Model):
     sdk_session_active = models.BooleanField(default=False)
     sdk_session_started_at = models.DateTimeField(null=True, blank=True)
     sdk_session_expires_at = models.DateTimeField(null=True, blank=True)
+    sdk_session_data = models.BinaryField(null=True, blank=True)
     
     class Meta:
         verbose_name = "Session Activity"
@@ -154,7 +155,35 @@ class SessionActivity(models.Model):
         self.sdk_session_active = False
         self.sdk_session_started_at = None
         self.sdk_session_expires_at = None
+        self.sdk_session_data = None
         self.save()
+
+    @staticmethod
+    def get_cipher():
+        """Get the Fernet cipher for encryption/decryption"""
+        key = os.environ.get('ENCRYPTION_KEY', 'default-key-change-in-production')
+        import hashlib
+        import base64
+        from cryptography.fernet import Fernet
+        hash_key = hashlib.sha256(key.encode()).digest()
+        return Fernet(base64.urlsafe_b64encode(hash_key))
+
+    def encrypt_data(self, data: bytes) -> bytes:
+        """Encrypt binary data."""
+        if not data:
+            return data
+        cipher = self.get_cipher()
+        return cipher.encrypt(data)
+
+    def decrypt_data(self, encrypted_data: bytes) -> bytes:
+        """Decrypt binary data."""
+        if not encrypted_data:
+            return encrypted_data
+        cipher = self.get_cipher()
+        try:
+            return cipher.decrypt(encrypted_data)
+        except Exception:
+            return encrypted_data
 
 
 class PlatformSettings(models.Model):
@@ -166,6 +195,7 @@ class PlatformSettings(models.Model):
     sdk_timeout_seconds = models.IntegerField(default=1800, help_text="SDK session timeout in seconds (default 30 min)")
 
     enable_user_registration = models.BooleanField(default=True, help_text="Allow new users to register via the signup button")
+    allow_session_restore = models.BooleanField(default=False, help_text="Allow restoring user and SDK sessions after server restarts")
 
     class Meta:
         verbose_name = "Platform Settings"

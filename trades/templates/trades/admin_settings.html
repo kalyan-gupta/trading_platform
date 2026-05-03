@@ -211,6 +211,11 @@
                             <input type="number" class="form-control form-control-sm" id="sdk_timeout_seconds" name="sdk_timeout_seconds" value="{{ platform_settings.sdk_timeout_seconds }}" min="300">
                             <div class="form-text small">Default: 1800 (30 min). Minimum: 300 (5 min).</div>
                         </div>
+                        <div class="form-check form-switch fs-5 mt-4 mb-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="allow_session_restore" name="allow_session_restore" {% if platform_settings.allow_session_restore %}checked{% endif %}>
+                            <label class="form-check-label fs-6 fw-bold" for="allow_session_restore">Session Restore After Restart</label>
+                            <div class="form-text small fs-6 mt-1" style="font-size: 0.85rem;">Automatically restore user & SDK sessions if the server process restarts.</div>
+                        </div>
                     </div>
                 </div>
             </div>

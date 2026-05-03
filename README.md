@@ -4,9 +4,10 @@
 [![Django Version](https://img.shields.io/badge/django-6.0%2B-green.svg)](https://www.djangoproject.com/)
 [![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
 
-A high-performance, real-time trading terminal built for speed, reliability, and advanced order management.
+A high-performance, real-time trading terminal specifically designed and optimized for the [**Kotak Neo API**](https://github.com/Kotak-Neo/Kotak-neo-api-v2).
 
 ---
+
 
 ## ⚖️ License
 This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for the full text.
@@ -16,10 +17,10 @@ We are grateful to the incredible open-source community. This platform is built 
 
 | Library | License | Description |
 | :--- | :--- | :--- |
+| [**Kotak Neo SDK**](https://github.com/Kotak-Neo/Kotak-neo-api-v2) | ![Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg) | The core engine providing seamless interaction with Kotak Securities. |
 | **Django** | ![BSD-3](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg) | The web framework for perfectionists with deadlines. |
 | **Channels & Daphne** | ![BSD-3](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg) | Powering real-time WebSockets and ASGI capabilities. |
 | **DuckDB** | ![MIT](https://img.shields.io/badge/License-MIT-yellow.svg) | In-process analytical database for sub-millisecond data access. |
-| **Kotak Neo SDK** | ![Proprietary](https://img.shields.io/badge/License-Proprietary-red.svg) | Official SDK for seamless interaction with Kotak Securities. |
 | **Cryptography** | ![Apache/BSD](https://img.shields.io/badge/License-Apache_2.0-green.svg) | Ensuring secure credential storage and session management. |
 
 ---

@@ -597,7 +597,32 @@ def admin_settings_view(request):
             platform_settings.sdk_timeout_seconds = int(request.POST.get('sdk_timeout_seconds', 1800))
         except ValueError:
             pass # Keep previous values if invalid
+        
+        old_allow_restore = platform_settings.allow_session_restore
+        new_allow_restore = request.POST.get('allow_session_restore') == 'on'
+        
+        platform_settings.allow_session_restore = new_allow_restore
         platform_settings.save()
+
+        if old_allow_restore != new_allow_restore:
+            from django.contrib.sessions.models import Session
+            from .models import SessionActivity
+            from .kotak_neo_api import KotakNeoAPI
+            from django.contrib.auth import logout
+            
+            # Delete all other sessions except the current one
+            current_session_key = request.session.session_key
+            if current_session_key:
+                Session.objects.exclude(session_key=current_session_key).delete()
+            else:
+                Session.objects.all().delete()
+                
+            SessionActivity.objects.all().delete()
+            KotakNeoAPI._session_cache.clear()
+            
+            # Safely flush current session
+            logout(request)
+            return redirect('login')
 
         messages.success(request, "All settings updated successfully!")
         return redirect('admin_settings')
@@ -1498,6 +1523,12 @@ def index(request):
         messages.error(request, f"Error initializing API: {str(e)}")
         return redirect('setup_credentials')
 
+    sdk_expires_at = None
+    if sdk_active:
+        session_info = api.get_cached_session()
+        if session_info and session_info.get('expires_at'):
+            sdk_expires_at = session_info['expires_at'].isoformat()
+
     if request.method == 'POST':
         if 'cancel_order_id' in request.POST:
             order_id = request.POST.get('cancel_order_id')
@@ -1540,6 +1571,10 @@ def index(request):
         messages.warning(request, f"Could not fetch order book: {order_book['error']}")
         order_book = [] # Reset to avoid template errors
 
+    show_restore_modal = request.session.pop('show_restore_modal', False)
+    if show_restore_modal:
+        request.session.modified = True
+
     context = {
         'api_response': api_response,
         'account_info': account_info,
@@ -1552,9 +1587,28 @@ def index(request):
         'sdk_active': sdk_active,
         'is_connected': True if account_info and 'error' not in account_info else False,
         'platform_settings': PlatformSettings.get_settings(),
+        'show_restore_modal': show_restore_modal,
+        'sdk_expires_at': sdk_expires_at,
     }
 
     return render(request, 'trades/index.html', context)
+
+
+@login_required_with_session_check
+def extend_sdk_session_ajax(request):
+    """Extend the Kotak Neo SDK Session via AJAX."""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Invalid request method'}, status=405)
+        
+    try:
+        api = KotakNeoAPI(user=request.user, session_id=request.session.session_key)
+        success, result = api.extend_session()
+        if success:
+            return JsonResponse({'status': 'success', 'new_expires_at': result})
+        else:
+            return JsonResponse({'status': 'error', 'message': result}, status=400)
+    except Exception as e:
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
 
 
 def _process_holdings_data(holdings, request=None):

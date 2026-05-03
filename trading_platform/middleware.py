@@ -91,9 +91,24 @@ class RestartDetectionMiddleware:
         if request.user.is_authenticated:
             session_boot_id = request.session.get('server_boot_id')
             if session_boot_id != settings.SERVER_BOOT_ID:
-                # Server has restarted, clear the session
-                logout(request)
-                messages.info(request, "The server has restarted. Please login again.")
-                return redirect('login')
+                from trades.models import PlatformSettings
+                platform_settings = PlatformSettings.get_settings()
+                if platform_settings.allow_session_restore:
+                    # Update the boot ID immediately to prevent duplicate triggers
+                    request.session['server_boot_id'] = settings.SERVER_BOOT_ID
+                    
+                    # Only show the "Restored" modal if:
+                    # 1. There WAS a previous boot ID (it's a restore, not a fresh login)
+                    # 2. It's a full page GET request (not an AJAX call or asset)
+                    is_ajax = request.headers.get('x-requested-with') == 'XMLHttpRequest' or 'application/json' in request.headers.get('Accept', '')
+                    if session_boot_id and request.method == 'GET' and not is_ajax:
+                        request.session['show_restore_modal'] = True
+                    
+                    request.session.modified = True
+                else:
+                    # Server has restarted, clear the session
+                    logout(request)
+                    messages.info(request, "The server has restarted. Please login again.")
+                    return redirect('login')
 
         return self.get_response(request)

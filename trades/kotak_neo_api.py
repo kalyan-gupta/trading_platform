@@ -59,10 +59,24 @@ class KotakNeoAPI:
         if not self.user_id:
             return None
         
-        from trades.models import PlatformSettings
+        from trades.models import PlatformSettings, SessionActivity
+        import pickle
+        
         settings = PlatformSettings.get_settings()
         
         session_info = KotakNeoAPI._session_cache.get(self.cache_key)
+        
+        if not session_info and settings.allow_session_restore:
+            try:
+                session_activity = SessionActivity.objects.get(session_key=self.session_id)
+                if session_activity.sdk_session_data:
+                    decrypted_data = session_activity.decrypt_data(session_activity.sdk_session_data)
+                    session_info = pickle.loads(decrypted_data)
+                    # Restore to memory cache
+                    KotakNeoAPI._session_cache[self.cache_key] = session_info
+            except Exception as e:
+                logger.warning(f"Failed to restore SDK session from database: {e}")
+
         if not session_info:
             return None
             
@@ -91,12 +105,63 @@ class KotakNeoAPI:
             'login_data': login_data,
             'expires_at': expires_at,
         }
+        
+        try:
+            from trades.models import SessionActivity
+            import pickle
+            
+            session_activity = SessionActivity.objects.get(session_key=self.session_id)
+            data_to_pickle = {
+                'client': self.client,
+                'login_data': login_data,
+                'expires_at': expires_at
+            }
+            pickled_data = pickle.dumps(data_to_pickle)
+            encrypted_data = session_activity.encrypt_data(pickled_data)
+            session_activity.sdk_session_data = encrypted_data
+            session_activity.save(update_fields=['sdk_session_data'])
+        except Exception as e:
+            logger.warning(f"Failed to securely store SDK session to database: {e}")
 
     def clear_cached_session(self):
         """Remove any cached SDK session for this user session."""
         if not self.user_id:
             return
         KotakNeoAPI._session_cache.pop(self.cache_key, None)
+        
+        try:
+            from trades.models import SessionActivity
+            session_activity = SessionActivity.objects.get(session_key=self.session_id)
+            session_activity.sdk_session_data = None
+            session_activity.save(update_fields=['sdk_session_data'])
+        except Exception:
+            pass
+
+    def extend_session(self):
+        """Extend the current SDK session expiry and save it to the database."""
+        session_info = self.get_cached_session()
+        if not session_info:
+            return False, "No active SDK session to extend."
+            
+        self.client = session_info['client']
+        
+        from trades.models import PlatformSettings
+        settings = PlatformSettings.get_settings()
+        duration_seconds = settings.sdk_timeout_seconds if settings.sdk_timeout_enabled else 86400
+        
+        # Re-cache the session with a new expiry (this handles pickling and db save)
+        self.cache_session(session_info['login_data'], duration_seconds)
+        
+        # Also update the unencrypted database column so the UI logic stays in sync
+        try:
+            from trades.models import SessionActivity
+            session_activity = SessionActivity.objects.get(session_key=self.session_id)
+            session_activity.sdk_session_expires_at = timezone.now() + timezone.timedelta(seconds=duration_seconds)
+            session_activity.save(update_fields=['sdk_session_expires_at'])
+        except Exception:
+            pass
+            
+        return True, (timezone.now() + timezone.timedelta(seconds=duration_seconds)).isoformat()
 
     def authenticate(self, totp=None, force_refresh=False):
         """Authenticate with Kotak Neo API using a one-time TOTP code."""
