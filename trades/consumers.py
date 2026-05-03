@@ -74,7 +74,10 @@ class LiveQuotesConsumer(WebsocketConsumer):
         auth_response = self.api.authenticate()
         if 'error' in auth_response:
             logger.error(f"WebSocket auth failure: {auth_response['error']}")
-            self.send(text_data=json.dumps({'error': auth_response['error']}))
+            self.send(text_data=json.dumps({
+                'type': 'auth_failure',
+                'message': auth_response['error']
+            }))
             self.close()
         else:
             with ws_state_lock:
@@ -331,5 +334,3 @@ class LiveQuotesConsumer(WebsocketConsumer):
                 self.send(text_data=json.dumps({'type': 'quote', 'data': normalized_list}))
         except Exception as e:
             logger.error(f"Error processing/sending quote to client: {e}", exc_info=True)
-
-
