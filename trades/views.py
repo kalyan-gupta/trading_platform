@@ -222,6 +222,46 @@ def login_view(request):
     return render(request, 'trades/login.html', context)
 
 
+from django.views.decorators.csrf import ensure_csrf_cookie
+
+@ensure_csrf_cookie
+def ajax_login_view(request):
+    """Handle AJAX login from the modal"""
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'Only POST allowed'}, status=405)
+    
+    try:
+        data = json.loads(request.body)
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return JsonResponse({'status': 'error', 'message': 'Username and password required'}, status=400)
+            
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            SessionActivity.objects.update_or_create(
+                session_key=request.session.session_key,
+                defaults={
+                    'user': user,
+                    'ip_address': get_client_ip(request),
+                    'last_activity': timezone.now()
+                }
+            )
+            request.session['server_boot_id'] = settings.SERVER_BOOT_ID
+            logger.info(f"User '{username}' re-authenticated via AJAX modal.")
+            return JsonResponse({'status': 'success', 'message': 'Logged in successfully'})
+        else:
+            return JsonResponse({'status': 'error', 'message': 'Invalid username or password'}, status=401)
+            
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'error', 'message': 'Invalid JSON'}, status=400)
+    except Exception as e:
+        logger.error(f"Error in ajax_login_view: {e}")
+        return JsonResponse({'status': 'error', 'message': str(e)}, status=500)
+
+
 def register_view(request):
     """Handle user registration"""
     if request.user.is_authenticated:

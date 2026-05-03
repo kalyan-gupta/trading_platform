@@ -107,6 +107,13 @@ class RestartDetectionMiddleware:
                     request.session.modified = True
                 else:
                     # Server has restarted, clear the session
+                    from trades.decorators import is_ajax
+                    from django.http import JsonResponse
+                    
+                    if is_ajax(request):
+                        logout(request)
+                        return JsonResponse({'error': 'Server restarted', 'reauth_required': True}, status=401)
+                        
                     logout(request)
                     messages.info(request, "The server has restarted. Please login again.")
                     return redirect('login')

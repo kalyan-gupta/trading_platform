@@ -719,6 +719,40 @@
             </div>
         </div>
     </div>
+    
+    <!-- AJAX Re-login Modal -->
+    <div class="modal fade" id="ajaxLoginModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title"><i class="bi bi-lock-fill me-2"></i>Session Required</h5>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="text-center mb-4">
+                        <div class="brand-logo mb-2">
+                            <i class="bi bi-graph-up-arrow fs-1 text-primary"></i>
+                        </div>
+                        <h4 class="fw-bold">Login to Continue</h4>
+                        <p class="text-muted small">Your session has expired or the server has restarted. Please enter your password to resume.</p>
+                    </div>
+                    <form id="ajax-login-form">
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">Username</label>
+                            <input type="text" class="form-control" id="ajax-login-username" value="{{ request.user.username }}" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">Password</label>
+                            <input type="password" class="form-control" id="ajax-login-password" placeholder="Enter your password" required>
+                        </div>
+                        <div id="ajax-login-error" class="alert alert-danger small py-2" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary w-100 py-2 fw-bold" id="ajax-login-submit">
+                            <i class="bi bi-box-arrow-in-right me-1"></i> Login and Resume
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <main class="container py-4">
         <div id="notification-area" class="position-fixed top-0 end-0 p-3" style="z-index: 9999"></div>
@@ -1481,6 +1515,145 @@
 
         // State tracking for SDK authentication
         window.isSDKAuthenticated = settingsData.sdkActive === 'true';
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    // Does this cookie string begin with the name we want?
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // Global Fetch Interceptor for 401/403 Error Handling
+        const originalFetch = window.fetch;
+        window.fetch = async (...args) => {
+            let [resource, config] = args;
+            
+            // Initialize config if it doesn't exist
+            if (!config) config = {};
+            if (!config.headers) config.headers = {};
+            
+            const isInternal = typeof resource === 'string' && (resource.startsWith('/') || !resource.includes('://'));
+
+            // Automatically add headers to identify AJAX calls and handle CSRF
+            if (isInternal) {
+                const csrfToken = getCookie('csrftoken');
+                const method = (config.method || 'GET').toUpperCase();
+
+                if (config.headers instanceof Headers) {
+                    if (!config.headers.has('X-Requested-With')) config.headers.set('X-Requested-With', 'XMLHttpRequest');
+                    if (!config.headers.has('Accept')) config.headers.set('Accept', 'application/json');
+                    if (csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                        config.headers.set('X-CSRFToken', csrfToken);
+                    }
+                } else {
+                    if (!config.headers['X-Requested-With']) config.headers['X-Requested-With'] = 'XMLHttpRequest';
+                    if (!config.headers['Accept']) config.headers['Accept'] = 'application/json';
+                    if (csrfToken && ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method)) {
+                        config.headers['X-CSRFToken'] = csrfToken;
+                    }
+                }
+            }
+
+            try {
+                const response = await originalFetch(resource, config);
+                
+                // Catch 401 Unauthorized or 403 Forbidden
+                if (response.status === 401 || response.status === 403) {
+                    const data = await response.clone().json().catch(() => ({}));
+                    if (data.reauth_required || response.status === 401) {
+                        showAjaxLoginModal();
+                        // Return a pending promise that never resolves/rejects 
+                        // to halt current execution flow until re-login
+                        return new Promise(() => {}); 
+                    }
+                }
+                return response;
+            } catch (error) {
+                throw error;
+            }
+        };
+
+        function showAjaxLoginModal() {
+            const modalElem = document.getElementById('ajaxLoginModal');
+            if (modalElem) {
+                // Prevent multiple modals if multiple requests fail simultaneously
+                if (modalElem.classList.contains('show')) return;
+                
+                const modal = new bootstrap.Modal(modalElem);
+                modal.show();
+                
+                // Focus password field
+                setTimeout(() => {
+                    const pwdInput = document.getElementById('ajax-login-password');
+                    if (pwdInput) pwdInput.focus();
+                }, 500);
+            }
+        }
+
+        // Handle AJAX login form submission
+        document.addEventListener('DOMContentLoaded', function() {
+            const loginForm = document.getElementById('ajax-login-form');
+            if (loginForm) {
+                loginForm.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    const password = document.getElementById('ajax-login-password').value;
+                    const username = document.getElementById('ajax-login-username').value;
+                    const errorDiv = document.getElementById('ajax-login-error');
+                    const submitBtn = document.getElementById('ajax-login-submit');
+                    
+                    errorDiv.style.display = 'none';
+                    submitBtn.disabled = true;
+                    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Logging in...';
+                    
+                    try {
+                        const response = await originalFetch('/ajax_login/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRFToken': getCookie('csrftoken'),
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: JSON.stringify({ username, password })
+                        });
+                        
+                        const data = await response.json();
+                        if (response.ok && data.status === 'success') {
+                            // Success! Close modal and notify
+                            const modalInstance = bootstrap.Modal.getInstance(document.getElementById('ajaxLoginModal'));
+                            if (modalInstance) modalInstance.hide();
+                            
+                            document.getElementById('ajax-login-password').value = '';
+                            if (typeof showNotification === 'function') {
+                                showNotification('Re-authenticated successfully! You can continue.', 'success');
+                            } else {
+                                alert('Re-authenticated successfully!');
+                            }
+                            
+                            // Check SDK status to update UI
+                            if (typeof checkSDKStatus === 'function') checkSDKStatus();
+                        } else {
+                            errorDiv.textContent = data.message || 'Invalid credentials. Please try again.';
+                            errorDiv.style.display = 'block';
+                        }
+                    } catch (error) {
+                        errorDiv.textContent = 'Network error. Please check your connection.';
+                        errorDiv.style.display = 'block';
+                    } finally {
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="bi bi-box-arrow-in-right me-1"></i> Login and Resume';
+                    }
+                });
+            }
+        });
 
         let tradeSocket = null;
         let reconnectAttempts = 0;
@@ -2854,7 +3027,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            'X-CSRFToken': getCookie('csrftoken')
                         },
                         body: JSON.stringify(marginRequest)
                     })
@@ -2867,7 +3040,7 @@
                                     method: 'POST',
                                     headers: {
                                         'Content-Type': 'application/json',
-                                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                        'X-CSRFToken': getCookie('csrftoken')
                                     },
                                     body: JSON.stringify(marginRequest)
                                 })
@@ -3422,7 +3595,7 @@
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                'X-CSRFToken': getCookie('csrftoken')
                             },
                             body: JSON.stringify({
                                 instrument_token: token,
@@ -3529,7 +3702,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-CSRFToken': getCookie('csrftoken'),
                         'X-Requested-With': 'XMLHttpRequest'
                     },
                     body: JSON.stringify({ totp: totp })
@@ -3618,7 +3791,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify(marginRequest)
                 })
@@ -3631,7 +3804,7 @@
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
-                                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                    'X-CSRFToken': getCookie('csrftoken')
                                 },
                                 body: JSON.stringify(marginRequest)
                             })
@@ -3662,7 +3835,7 @@
                                         method: 'POST',
                                         headers: {
                                             'Content-Type': 'application/json',
-                                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                            'X-CSRFToken': getCookie('csrftoken')
                                         },
                                         body: JSON.stringify(orderData)
                                     })
@@ -3713,7 +3886,7 @@
                             method: 'POST',
                             headers: {
                                 'Content-Type': 'application/json',
-                                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                'X-CSRFToken': getCookie('csrftoken')
                             },
                             body: JSON.stringify(orderData)
                         });
@@ -3746,7 +3919,7 @@
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
-                                    'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                                    'X-CSRFToken': getCookie('csrftoken')
                                 },
                                 body: JSON.stringify(orderData)
                             })
@@ -3835,7 +4008,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify({ order_id: orderId })
                 })
@@ -3913,7 +4086,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            'X-CSRFToken': getCookie('csrftoken')
                         }
                     })
                     .then(response => response.json())
@@ -3987,11 +4160,11 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/x-www-form-urlencoded',
-                            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            'X-CSRFToken': getCookie('csrftoken')
                         },
                         body: new URLSearchParams({
                             'totp': totp,
-                            'csrfmiddlewaretoken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                            'csrfmiddlewaretoken': getCookie('csrftoken')
                         })
                     })
                     .then(response => {
@@ -4097,7 +4270,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify(data)
                 })
@@ -4201,7 +4374,7 @@
                 fetch('/basket/clear/', {
                     method: 'POST',
                     headers: {
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     }
                 })
                 .then(r => r.json())
@@ -4540,7 +4713,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify(updatedData)
                 })
@@ -4647,7 +4820,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify({ sequence })
                 })
@@ -4663,7 +4836,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify({ order_id: id })
                 })
@@ -4687,7 +4860,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     }
                 })
                 .then(r => r.json())
@@ -4740,7 +4913,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     }
                 })
                 .then(r => r.json())
@@ -4785,7 +4958,7 @@
                     
                     fetch('/basket/reorder/', {
                         method: 'POST',
-                        headers: { 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value }
+                        headers: { 'X-CSRFToken': getCookie('csrftoken') }
                     })
                     .then(r => r.json())
                     .then(res => {
@@ -4833,7 +5006,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                        'X-CSRFToken': getCookie('csrftoken')
                     }
                 })
                 .then(response => response.json())
@@ -5309,7 +5482,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+                        'X-CSRFToken': getCookie('csrftoken'),
                         'X-Requested-With': 'XMLHttpRequest'
                     }
                 })

@@ -9,6 +9,18 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def is_ajax(request):
+    """
+    Helper to detect AJAX requests.
+    Checks for X-Requested-With header or Accept: application/json.
+    """
+    return (
+        request.headers.get('x-requested-with') == 'XMLHttpRequest' or
+        'application/json' in request.headers.get('Accept', '') or
+        request.content_type == 'application/json'
+    )
+
+
 def login_required_with_session_check(view_func):
     """
     Decorator that checks both authentication and session expiry.
@@ -18,6 +30,8 @@ def login_required_with_session_check(view_func):
     def wrapped_view(request, *args, **kwargs):
         # Check if user is authenticated
         if not request.user.is_authenticated:
+            if is_ajax(request):
+                return JsonResponse({'error': 'Authentication required', 'reauth_required': True}, status=401)
             return redirect(reverse('login') + f'?next={request.path}')
         
         # Check session activity/expiry
@@ -31,6 +45,9 @@ def login_required_with_session_check(view_func):
                 request.session.flush()
                 request.user = AnonymousUser()
                 logger.info(f"Session expired for user {session_activity.user.username} at {request.path}")
+                
+                if is_ajax(request):
+                    return JsonResponse({'error': 'Session expired', 'expired': True, 'reauth_required': True}, status=401)
                 return redirect(reverse('login') + '?expired=true' + f'&next={request.path}')
         except SessionActivity.DoesNotExist:
             # Create session activity record if it doesn't exist
@@ -53,6 +70,7 @@ def login_required_with_session_check(view_func):
         # Call the original view
         return view_func(request, *args, **kwargs)
     
+    from django.http import JsonResponse
     return wrapped_view
 
 
